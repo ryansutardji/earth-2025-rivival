@@ -55,7 +55,6 @@ export interface NationOverrides {
   taxRate?: number;
   archetype?: Nation["archetype"];
   ticksAlive?: number;
-  lastGrowthDay?: number;
   defeated?: boolean;
   brigades?: Brigade[];
   aiTurnsRemaining?: number;
@@ -85,7 +84,6 @@ export function makeNation(o: NationOverrides = {}): Nation {
     government: o.government ?? DEFAULT_GOVERNMENT,
     taxRate: o.taxRate ?? 0.25,
     ticksAlive: o.ticksAlive ?? 0,
-    lastGrowthDay: o.lastGrowthDay ?? 0,
     defeated: o.defeated ?? false,
     brigades: o.brigades ?? [],
     aiTurnsRemaining: o.aiTurnsRemaining ?? config.turnPoolCap,

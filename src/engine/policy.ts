@@ -3,8 +3,7 @@
 
 import { config } from "./config";
 import { gov } from "./government";
-import { razeBuildings } from "./combat";
-import { builtAcres } from "./economy";
+import { builtAcres, razeBuildings } from "./economy";
 import { TECH_CATEGORIES, UNIT_TYPES } from "./types";
 import type { ActionResult, GovernmentId, Nation, ProductionMix, TechCategory } from "./types";
 

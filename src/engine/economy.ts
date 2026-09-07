@@ -20,8 +20,8 @@ import {
   residentialTechMult,
   warfareTechRate,
 } from "./tech";
-import type { Military, MissileStock, Nation } from "./types";
-import { BUILDING_TYPES, MISSILE_TYPES, UNIT_TYPES } from "./types";
+import type { Buildings, Military, MissileStock, Nation } from "./types";
+import { BUILDING_TYPES, UNIT_TYPES } from "./types";
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -31,6 +31,23 @@ export function builtAcres(n: Nation): number {
 
 export function emptyAcres(n: Nation): number {
   return Math.max(0, n.land - builtAcres(n));
+}
+
+/** Remove `acres` of built land, spread across building types by current
+ * share. Shared by combat (land grabs, bombing/artillery), covert ops
+ * (Bomb Buildings), missiles, and the government-change instability penalty. */
+export function razeBuildings(b: Buildings, acres: number): { buildings: Buildings; razed: number } {
+  const total = BUILDING_TYPES.reduce((s, k) => s + b[k], 0);
+  if (total <= 0 || acres <= 0) return { buildings: b, razed: 0 };
+  const take = Math.min(acres, total);
+  const out = { ...b };
+  let razed = 0;
+  for (const k of BUILDING_TYPES) {
+    const cut = Math.min(out[k], Math.round((b[k] / total) * take));
+    out[k] -= cut;
+    razed += cut;
+  }
+  return { buildings: out, razed };
 }
 
 /** All units including spies — bushel upkeep + display. */
@@ -68,6 +85,15 @@ export function perCapitaIncome(n: Nation, taxComfortThreshold: number = config.
   return config.basePci * ezBoost * unusedBoost * clamp(taxDrag, 0.15, 1) * businessTechMult(n) * g.pciMult;
 }
 
+/** Fractional discount Military Bases give to per-unit upkeep *and*
+ * private-market unit prices (`1 - this` multiplies both). Capped. */
+export function militaryBaseCostCut(n: Nation): number {
+  return Math.min(
+    config.militaryBaseUpkeepCap,
+    (n.buildings.militaryBases / Math.max(1, n.land)) * config.militaryBaseUpkeepFactor,
+  );
+}
+
 /** Per-turn military upkeep in cash (Military tech + Military Bases + government). */
 export function militaryUpkeep(n: Nation): number {
   const u = config.upkeepPerUnit;
@@ -77,11 +103,7 @@ export function militaryUpkeep(n: Nation): number {
     n.military.turrets * u.turrets +
     n.military.tanks * u.tanks +
     n.military.spies * u.spies;
-  const baseCut = Math.min(
-    config.militaryBaseUpkeepCap,
-    (n.buildings.militaryBases / Math.max(1, n.land)) * config.militaryBaseUpkeepFactor,
-  );
-  return raw * militaryCostTechMult(n) * gov(n.government).militaryCostMult * (1 - baseCut);
+  return raw * militaryCostTechMult(n) * gov(n.government).militaryCostMult * (1 - militaryBaseCostCut(n));
 }
 
 export interface EconomyRates {
@@ -243,10 +265,3 @@ export function applyEconomyTick(
   };
   return { nation, log };
 }
-
-/** Net per-turn cash change (revenue − upkeep). */
-export function incomeFor(n: Nation): { cash: number } {
-  return { cash: projectRates(n).cash };
-}
-
-export { MISSILE_TYPES };

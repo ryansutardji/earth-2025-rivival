@@ -6,8 +6,7 @@
 
 import { config } from "./config";
 import { sdiTechChance } from "./tech";
-import { battleUnits } from "./economy";
-import { razeBuildings } from "./combat";
+import { battleUnits, razeBuildings } from "./economy";
 import { BUILDING_TYPES } from "./types";
 import type { Military, MissileResult, MissileType, Nation, Rng } from "./types";
 

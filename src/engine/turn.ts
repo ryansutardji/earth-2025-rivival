@@ -207,6 +207,33 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
     return null;
   };
 
+  // As `applySimple`, plus the updated market state (buy/sell).
+  const applyMarket = (r: { ok: boolean; error?: string; nation: Nation; market: WorldState["market"]; turnsRemaining: number; log: string[] }, fallback: string) => {
+    if (!r.ok) return reject(prev, r.error ?? fallback);
+    world.player = r.nation;
+    world.market = r.market;
+    world.turnsRemaining = r.turnsRemaining;
+    pushLog(world, r.log);
+    return null;
+  };
+
+  // Look up a live, non-defeated enemy by id, or a ready-to-return rejection.
+  const findTarget = (targetId: string): { idx: number; target: Nation } | { reject: TurnOutcome } => {
+    const idx = world.enemies.findIndex((e) => e.id === targetId);
+    const target = idx >= 0 ? world.enemies[idx] : undefined;
+    if (!target) return { reject: reject(prev, "No such enemy.") };
+    if (target.defeated) return { reject: reject(prev, `${target.name} is already defeated.`) };
+    return { idx, target };
+  };
+
+  // The pre-first-strike build-up window (shared by attacks and missiles).
+  const attackWindowClosed = (): TurnOutcome | null => {
+    const unlockDay = attacksUnlockDay(world.seasonLengthDays);
+    return world.day < unlockDay
+      ? reject(prev, `No attacking until day ${unlockDay} — build up your forces first.`)
+      : null;
+  };
+
   switch (action.kind) {
     case "build": {
       const bad = applySimple(build(world.player, world.turnsRemaining, { type: action.buildingType, acres: action.acres }), "Cannot build.");
@@ -256,26 +283,18 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
       break;
     }
     case "marketBuy": {
-      const r = marketBuy(world.player, world.market, world.turnsRemaining, action.good, action.qty);
-      if (!r.ok) return reject(prev, r.error ?? "Cannot buy.");
-      world.player = r.nation;
-      world.market = r.market;
-      world.turnsRemaining = r.turnsRemaining;
-      pushLog(world, r.log);
+      const bad = applyMarket(marketBuy(world.player, world.market, world.turnsRemaining, action.good, action.qty), "Cannot buy.");
+      if (bad) return bad;
       break;
     }
     case "marketSell": {
-      const r = marketSell(world.player, world.market, world.turnsRemaining, action.good, action.qty);
-      if (!r.ok) return reject(prev, r.error ?? "Cannot sell.");
-      world.player = r.nation;
-      world.market = r.market;
-      world.turnsRemaining = r.turnsRemaining;
-      pushLog(world, r.log);
+      const bad = applyMarket(marketSell(world.player, world.market, world.turnsRemaining, action.good, action.qty), "Cannot sell.");
+      if (bad) return bad;
       break;
     }
     case "attack": {
-      const unlockDay = attacksUnlockDay(world.seasonLengthDays);
-      if (world.day < unlockDay) return reject(prev, `No attacking until day ${unlockDay} — build up your forces first.`);
+      const closed = attackWindowClosed();
+      if (closed) return closed;
       if (action.attackType === "planned" && world.player.brigades.length >= config.maxBrigades) {
         return reject(prev, `All ${config.maxBrigades} brigades are resting — wait for one to return before another planned strike.`);
       }
@@ -297,10 +316,9 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
       const oilCost = Math.ceil(sentTotal / config.unitsPerOilBarrel);
       if (world.player.oil < oilCost) return reject(prev, `That attack needs ${oilCost} oil. Build oil rigs or buy some.`);
 
-      const idx = world.enemies.findIndex((e) => e.id === action.targetId);
-      const target = idx >= 0 ? world.enemies[idx] : undefined;
-      if (!target) return reject(prev, "No such enemy.");
-      if (target.defeated) return reject(prev, `${target.name} is already defeated.`);
+      const t = findTarget(action.targetId);
+      if ("reject" in t) return t.reject;
+      const { idx, target } = t;
 
       const res = resolveCombat(world.player, target, action.attackType, rng.next, action.send);
       world.player = res.attacker;
@@ -313,10 +331,9 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
     case "covertOp": {
       if (world.turnsRemaining < config.turnCost.covertOp) return reject(prev, "Not enough turns.");
       if (world.player.military.spies <= 0) return reject(prev, "You have no spies. Set production toward spies.");
-      const idx = world.enemies.findIndex((e) => e.id === action.targetId);
-      const target = idx >= 0 ? world.enemies[idx] : undefined;
-      if (!target) return reject(prev, "No such enemy.");
-      if (target.defeated) return reject(prev, `${target.name} is already defeated.`);
+      const t = findTarget(action.targetId);
+      if ("reject" in t) return t.reject;
+      const { idx, target } = t;
 
       const heat = target.covertHeat;
       const res = resolveCovertOp(world.player, target, action.op, world.day, rng.next, heat);
@@ -334,16 +351,15 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
       break;
     }
     case "launchMissile": {
-      const missileUnlockDay = attacksUnlockDay(world.seasonLengthDays);
-      if (world.day < missileUnlockDay) return reject(prev, `No attacking until day ${missileUnlockDay} — build up your forces first.`);
+      const closed = attackWindowClosed();
+      if (closed) return closed;
       if (world.turnsRemaining < config.turnCost.launchMissile) return reject(prev, "Not enough turns.");
       if (world.player.missiles[action.missile] <= 0) return reject(prev, `You have no ${action.missile} missiles.`);
       const oilCost = config.missile.oilCost[action.missile];
       if (world.player.oil < oilCost) return reject(prev, `Launching needs ${oilCost} oil.`);
-      const idx = world.enemies.findIndex((e) => e.id === action.targetId);
-      const target = idx >= 0 ? world.enemies[idx] : undefined;
-      if (!target) return reject(prev, "No such enemy.");
-      if (target.defeated) return reject(prev, `${target.name} is already defeated.`);
+      const t = findTarget(action.targetId);
+      if ("reject" in t) return t.reject;
+      const { idx, target } = t;
 
       const res = resolveMissile(world.player, target, action.missile, rng.next);
       world.player = res.attacker;

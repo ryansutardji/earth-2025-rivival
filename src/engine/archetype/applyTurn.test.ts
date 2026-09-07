@@ -367,6 +367,36 @@ describe("applyArchetypeTurn", () => {
     expect(input.enemies[0]!.land).toBeGreaterThan(landBefore);
   });
 
+  it("hard cap: won't explore past exploreMaxEmptyLandFraction even if the preference knob is loosened", () => {
+    // Preference knob cranked so loose it would allow exploring a 70%-empty
+    // nation — the 50% hard cap (the game rule) must still block it. A broke
+    // nation in this state falls back to cashing a turn, so land never grows.
+    const orig = config.archetypeExploreLandFraction;
+    (config as { archetypeExploreLandFraction: number }).archetypeExploreLandFraction = 0.9;
+    try {
+      const self = seedNation("balanced", {
+        government: ARCHETYPES.balanced.government,
+        land: 1000,
+        buildings: { constructionSites: 300 }, // 70% empty — over the 50% cap
+        cash: 0,
+        military: { spies: 0 },
+      });
+      const player = makeNation({ id: "player", isPlayer: true });
+      const rng = rngFromSeed(8).next;
+      let input: RosterTurnInput = { player, enemies: [self] };
+      for (let day = 1; day <= 6; day++) {
+        for (let k = 0; k < 12; k++) {
+          const res = applyArchetypeTurn(self.id, input, tier, day, SEASON_DAYS, TAX, rng);
+          input = { player: res.player, enemies: res.enemies };
+        }
+        input = newDay(input);
+      }
+      expect(input.enemies[0]!.land).toBe(1000);
+    } finally {
+      (config as { archetypeExploreLandFraction: number }).archetypeExploreLandFraction = orig;
+    }
+  });
+
   it("upkeep brake: won't buy more military when its economy can't feed it", () => {
     // Standing army whose upkeep already outruns income (net −$4k/turn), but
     // a big cash cushion to build with. It must stop buying military and

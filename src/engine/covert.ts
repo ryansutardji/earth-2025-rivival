@@ -8,10 +8,10 @@
 import { config } from "./config";
 import { gov } from "./government";
 import { spyTechMult } from "./tech";
-import { spal } from "./economy";
+import { razeBuildings, spal } from "./economy";
 import { netWorth } from "./networth";
-import { BUILDING_TYPES, TECH_CATEGORIES } from "./types";
-import type { Buildings, CovertOp, CovertResult, EnemyIntel, Nation, Rng } from "./types";
+import { TECH_CATEGORIES } from "./types";
+import type { CovertOp, CovertResult, EnemyIntel, Nation, Rng } from "./types";
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -69,20 +69,6 @@ export function snapshotIntel(n: Nation, day: number): EnemyIntel {
   };
 }
 
-function raze(b: Buildings, acres: number): { buildings: Buildings; razed: number } {
-  const total = BUILDING_TYPES.reduce((s, k) => s + b[k], 0);
-  if (total <= 0 || acres <= 0) return { buildings: b, razed: 0 };
-  const take = Math.min(acres, total);
-  const out = { ...b };
-  let razed = 0;
-  for (const k of BUILDING_TYPES) {
-    const cut = Math.min(out[k], Math.round((b[k] / total) * take));
-    out[k] -= cut;
-    razed += cut;
-  }
-  return { buildings: out, razed };
-}
-
 export interface CovertResolution {
   result: CovertResult;
   attacker: Nation;
@@ -125,7 +111,7 @@ export function resolveCovertOp(
       nextAttacker = { ...attacker, tech: { ...attacker.tech, militaryStrategy: attacker.tech.militaryStrategy + techStolen } };
     } else if (op === "bombBuildings") {
       const wanted = Math.max(Math.floor(defender.buildings.industrialComplexes * c.bombBuildingsPct) + Math.floor(defender.buildings.enterpriseZones * c.bombBuildingsPct), c.bombBuildingsMinAcres);
-      const r = raze(defender.buildings, wanted);
+      const r = razeBuildings(defender.buildings, wanted);
       buildingsSabotaged = r.razed;
       nextDefender = { ...defender, buildings: r.buildings };
     } else if (op === "raidFoodStores") {

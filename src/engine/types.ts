@@ -193,8 +193,6 @@ export interface Nation {
   archetype?: ArchetypeId;
   /** Player actions this nation has lived through (per-action clock). */
   ticksAlive: number;
-  /** Last `day` this archetype ran its curve-driven growth step (AI only). */
-  lastGrowthDay: number;
 
   defeated: boolean;
 }
@@ -356,21 +354,16 @@ export const COVERT_OPS: readonly CovertOp[] = [
 /** A snapshot of a nation captured by a successful Spy op — may be stale.
  * Every nation keeps its own `intel` record of who it's scouted — this isn't
  * player-only, any archetype that successfully spies on anyone (the player
- * or another archetype) gets one of these on them too. */
-export interface EnemyIntel {
+ * or another archetype) gets one of these on them too. Derived from `Nation`
+ * so the field types can't drift, plus `day` (when it was taken) and
+ * `netWorth` (a computed value, not a `Nation` field). */
+export type EnemyIntel = Pick<
+  Nation,
+  "land" | "population" | "bushels" | "oil" | "cash" | "buildings" | "military" | "missiles" | "tech" | "government"
+> & {
   day: number;
-  land: number;
-  population: number;
-  bushels: number;
-  oil: number;
-  cash: number;
-  buildings: Buildings;
-  military: Military;
-  missiles: MissileStock;
-  tech: TechLevels;
-  government: GovernmentId;
   netWorth: number;
-}
+};
 
 /** A decaying grievance against another nation — they attacked us, or got
  * caught (detected) failing a spy op against us. Feeds target-priority

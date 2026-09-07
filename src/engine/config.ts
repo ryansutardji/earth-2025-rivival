@@ -291,8 +291,16 @@ export const config = {
    * (unbuilt) land drops to this fraction of total land owned — otherwise
    * the affordability mask zeroes its weight. Keeps archetypes expanding
    * their borders like a player does (explore → fill with buildings →
-   * explore again) instead of plateauing on their starting acreage. */
+   * explore again) instead of plateauing on their starting acreage. This is
+   * a tuning preference, always stricter than `exploreMaxEmptyLandFraction`. */
   archetypeExploreLandFraction: 0.1,
+  /** Hard cap: an archetype never explores when empty land is at or above
+   * this fraction of total — the Earth Empires "can't explore with a mostly
+   * empty nation" rule. Binds regardless of how `archetypeExploreLandFraction`
+   * is tuned, so a loose preference can't make the AI waste turns claiming
+   * land it can't build on. A broke archetype in this state falls back to
+   * cashing a turn instead. */
+  exploreMaxEmptyLandFraction: 0.5,
   /** A spy snapshot older than this many days is too stale to inform a
    * "smart" target/attack-type choice — falls back to the cautious default. */
   intelStalenessDays: 10,
@@ -330,6 +338,42 @@ export const config = {
    * linearly from ×1 on day 1 to ×seasonHeatMaxMult on the final day. Early
    * game is a build race; late game everyone comes for you. */
   seasonHeatMaxMult: 2.4,
+
+  /** Attack target-selection score (see `pickAttackTarget` in
+   * archetype/applyTurn.ts). Among targets that already cleared
+   * `attackViable`, each candidate gets
+   *   sizeScore × winScore × grudgeBonus × futilityDrag
+   * and the highest wins. Replaces the old "whoever I spied most recently"
+   * pecking order, which funnelled every AI onto the same weak nation. */
+  targeting: {
+    /** sizeScore = clamp(theirLand / myLand, min, max). Bigger-than-me
+     * nations are juicier (matches the land-capture % curve); a crippled
+     * nation floors out low so the pack stops farming it. */
+    sizeRatioMin: 0.5,
+    sizeRatioMax: 2.0,
+    /** winScore, when there's a fresh spy snapshot: linear map of the real
+     * power ratio (offense / [defense + home bonus]) from
+     * `attackViabilityMargin` → winScoreMin up to winScoreRatioHi →
+     * winScoreMax. Barely-viable scouted targets score *below*
+     * `unknownWinScore` — looking and finding a coin-flip actively steers
+     * the AI toward an easier or unscouted target. */
+    winScoreMin: 0.6,
+    winScoreMax: 1.5,
+    winScoreRatioHi: 1.6,
+    /** winScore with no fresh intel — neutral: the AI genuinely doesn't know. */
+    unknownWinScore: 1.0,
+    /** grudgeBonus = 1 + grudgeWeight × min(grudgeScore / grudgeSaturation, 1).
+     * A multiplicative nudge (≤1.5×), never an override: it lifts a fresh
+     * grievance up an even field but can't force a pick onto a picked-clean
+     * or unbeatable nation. */
+    grudgeWeight: 0.5,
+    grudgeSaturation: 6,
+    /** futilityDrag = clamp(1 - futilityDrag × attackFutility / threshold,
+     * floor, 1). Eases the AI off a target it's bounced off once or twice
+     * *before* `attackFutilityThreshold` removes it outright. */
+    futilityDrag: 0.5,
+    futilityDragFloor: 0.34,
+  },
 } as const;
 
 export type Config = typeof config;

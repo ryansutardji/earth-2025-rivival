@@ -127,13 +127,15 @@ instead of `config.x` in `applyTurn.ts`.
 
 | Knob (config name) | What it controls | Current value |
 |---|---|---|
-| **Target preference** (`pickTarget`, in code) | Who it attacks/spies: fresh intel > grudge > random. **Deliberately left uniform** — the user wants AI to treat the player as just another nation, no "hunts you" bias. | same for all, and staying that way |
+| **Attack target preference** (`pickAttackTarget` + `config.targeting`) | Among targets that clear `attackViable`, highest `sizeScore × winScore × grudgeBonus × futilityDrag` wins. `sizeScore` = their-land ÷ my-land (0.5–2.0): punch up, leave cripples alone. `winScore` (0.6–1.5) needs fresh intel — a scouted coin-flip scores *below* an unscouted unknown (1.0). `grudgeBonus` ≤1.5× nudge, never an override. `futilityDrag` eases off a target it keeps bouncing off. **Replaced the old "whoever I spied most recently" pecking order**, which funnelled every AI onto the same unlucky nation and farmed it out of the game. **No "hunts the player" bias** — player is just another nation. *Follow-ups parked:* weighted-random selection instead of highest-wins, and an explicit "already being swarmed" dampener. | same for all |
+| **Covert target preference** (`pickCovertTarget`, in code) | Prefer a candidate with *no* fresh intel (spying is for unknowns) > grudge > random. Ignores size. | same for all |
 | `attackViabilityMargin` | How much stronger than the target's defense it must be before it'll commit to an attack. Lower = recklesser. | 1.15 |
 | `attackFutilityThreshold` / `attackFutilityRepelledScore` / `attackFutilityDecayPerDay` | How many repelled attacks before it gives up on a target and backs off, and how fast that memory fades. | threshold 3, +2 per loss, −2/day (≈ 2 losses → back off ≈ 1 day) |
 | **Upkeep brake tolerance** (`applyTurn.ts`, in code) | Currently a hard stop: net cash *or* net bushels below 0 → don't grow the army. Could let a Raider run a small deficit (glass cannon). | hard stop at 0 |
 | `militarySpendFraction` (per-template) | Share of cash committed per "buy military" decision. **Already per-archetype.** | Raider 0.7, others 0.5 |
 | `buildSpendFraction` (per-template) | Share of cash committed per "build economy" decision. **Already per-archetype.** | 0.5 all |
-| `archetypeExploreLandFraction` | Empty land must drop to this share of total before "explore" enters the roll. | 0.10 |
+| `archetypeExploreLandFraction` | Empty land must drop to this share of total before "explore" enters the roll (tuning preference). | 0.10 |
+| `exploreMaxEmptyLandFraction` | Hard cap: an archetype never explores at/above this empty-land share — the EE "can't explore a mostly-empty nation" rule. Binds regardless of the preference knob; a broke archetype here cashes a turn instead. | 0.50 |
 | `attackForceMargin` | With intel, how far it overshoots the target's known defense (vs. blind full-send). | 1.30 |
 | `seasonHeatMaxMult` | How much `attackPlayer` / `covertPlayer` weights ramp up from day 1 to the deadline. | 2.4 (×1 → ×2.4) |
 | **Covert op choice** (`pickCovertOp`, in code) | No intel → scout (`spy`); has intel → random harmful op. Could flavor it — Turtle: counter-intel only; Raider: only ops that soften a target for an attack. | same for all |
@@ -193,28 +195,32 @@ and probably should stay that way.
 Aggressive, offense-focused land-grabber. Starts from `SHARED_BASELINE` like
 everyone else; identity is entirely in the knobs below.
 
+Revised after the first mixed-roster sim showed the original build (turrets
+10%, near-zero EZ/residences, buildEconomy 2) was a paper tiger — it attacked
+plenty but couldn't win a fight, couldn't replace losses, fell behind, and
+every other archetype farmed it. This version keeps the aggression but gives
+it a real economy and a defensive spine.
+
 | Knob | Value | Rationale |
 |---|---|---|
 | `government` | Tyranny | Attacks cost only 1 turn. |
-| `decisionTable` | attack **4** / covert 1 / buildMilitary **5** / buildEconomy **2** / explore 3 | ~2× the attack frequency of shared, and it compounds with season heat + `aggressionSkew`; economy investment cut. |
+| `decisionTable` | attack **4** / covert 1 / buildMilitary **5** / buildEconomy **4** / explore 3 | ~2× the attack frequency of shared, compounding with season heat + `aggressionSkew`. `buildEconomy` at 4 (above shared's 3) so it can recover from combat losses and keep pace. |
 | `attackTypeMix` | standard **0.75** / planned **0.15** / guerilla **0.05** / bombing **0.05** | Standard/Planned = the land-grab-and-loot attacks. Bombing (jets vs turrets, captures nothing) all but dropped. Only used before it has intel on a target. |
-| `production` | troops 25 / jets 25 / turrets **10** / tanks 25 / spies **15** | 75% to fighting units; turrets halved; spies trimmed but kept ≥15 so it still scouts a little. |
-| `targetMix` | troops **35** / jets **35** / turrets **10** / tanks **20** | Cheap effective offense carries it; tanks modest to stay affordable under the upkeep brake; turrets minimal. |
-| `buyPriority` | troops, jets, tanks, turrets | Turrets last. |
-| `buildingMix` | indComplexes **30** / sites **20** / milBases **15** / oilRigs **15** / farms **12** / EZ **4** / residences **4** / labs **0** | Industrial complexes as the passive-army engine; military bases up to relieve the upkeep brake; near-zero pure economy; labs 0 (archetypes don't steer research focus, so labs would just pump business tech). |
+| `production` | troops 25 / jets 25 / turrets **15** / tanks 20 / spies **15** | Offense-forward, but enough turret output to hold a spine. Spies kept at 15 so it still scouts. |
+| `targetMix` | troops **32** / jets **32** / turrets **18** / tanks **18** | ~64% offense, but turrets are a real floor now — its army rebuilds a wall instead of letting attrition take it to nothing. |
+| `buyPriority` | troops, jets, tanks, turrets | Turrets last (deficit-first still buys them when they're behind). |
+| `buildingMix` | indComplexes **22** / oilRigs **15** / sites **15** / EZ **14** / milBases **12** / farms **12** / residences **10** / labs **0** | Industrial complexes still the army engine + military bases for the upkeep brake, but a genuine income base (EZ + residences) so it grows land/income instead of stalling and getting farmed. Labs 0. |
 | `buildPriority` | oilRigs, farms, indComplexes, milBases, sites, EZ, residences, labs | Oil first — a Raider that hits 0 oil literally can't attack — then farms (food brake), then the engine. |
 | `militarySpendFraction` | **0.7** | Goes big when it buys (vs. 0.5 default). |
 | `buildSpendFraction` | 0.5 | Same as default. |
 
 **Known consequences (watch in playtest):**
-- **Soft on defense, rarely scouts** — high-variance opponent: dangerous
-  ahead, folds fast when it loses a couple of fights (futility back-off +
-  upkeep brake then make it retreat and rebuild).
-- **Sustainable, not a glass cannon** — the choices (modest tanks, military
-  bases, tiny EZ/residences floor) mean the upkeep brake pulls it back to
-  rebuild when it overextends rather than letting it self-destruct. Flipping
-  to glass-cannon means a Group B brake-tolerance change.
+- **Still offense-forward, now durable** — the goal is a sustained aggressor,
+  not a glass cannon. If it should instead "blitz early and burn out",
+  revert `buildEconomy` to 2 and the economy `buildingMix`, and bump
+  `attackPlayer` to 5-6 (a different archetype — a Blitzer).
 - **No "hunts you" bias** — by design it targets the player no more than any
-  other nation.
+  other nation. Its attack-viability filter drops targets it can't beat,
+  which (with soft raiders around) tends to make raiders fight each other.
 - **High tiers late-season** — attack 4 × `aggressionSkew` (up to 2.1) ×
   season heat (2.4) ≈ 20+ effective weight; it may attack nearly every turn.

@@ -6,6 +6,7 @@
 
 import { config } from "./config";
 import { gov } from "./government";
+import { militaryBaseCostCut } from "./economy";
 import { militaryCostTechMult } from "./tech";
 import type { ActionResult, Military, Nation } from "./types";
 
@@ -18,12 +19,11 @@ export interface BuyParams {
 
 /** Current private-market buy price for one unit of `type`. */
 export function privateBuyPrice(nation: Nation, type: UnitType): number {
-  const baseCut = Math.min(
-    config.militaryBaseUpkeepCap,
-    (nation.buildings.militaryBases / Math.max(1, nation.land)) * config.militaryBaseUpkeepFactor,
-  );
   return Math.round(
-    config.unitCost[type] * militaryCostTechMult(nation) * gov(nation.government).militaryCostMult * (1 - baseCut),
+    config.unitCost[type] *
+      militaryCostTechMult(nation) *
+      gov(nation.government).militaryCostMult *
+      (1 - militaryBaseCostCut(nation)),
   );
 }
 

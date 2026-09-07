@@ -17,10 +17,9 @@
 import { config } from "./config";
 import { gov } from "./government";
 import { medicalTechMult, strategyTechMult, weaponsTechMult } from "./tech";
-import { battleUnits, builtAcres, totalMilitary } from "./economy";
+import { battleUnits, builtAcres, razeBuildings, totalMilitary } from "./economy";
 import { availableMilitary } from "./brigades";
-import { BUILDING_TYPES } from "./types";
-import type { AttackOrders, AttackType, Brigade, Buildings, CombatResult, Military, Nation, Rng, UnitLosses } from "./types";
+import type { AttackOrders, AttackType, Brigade, CombatResult, Military, Nation, Rng, UnitLosses } from "./types";
 
 type PowerTable = { troops: number; jets: number; turrets: number; tanks: number; spies: number };
 
@@ -111,21 +110,6 @@ function subtract(m: Military, l: UnitLosses): Military {
     tanks: Math.max(0, m.tanks - l.tanks),
     spies: m.spies,
   };
-}
-
-/** Remove `acres` of built land, spread across building types by current share. */
-export function razeBuildings(b: Buildings, acres: number): { buildings: Buildings; razed: number } {
-  const total = BUILDING_TYPES.reduce((s, k) => s + b[k], 0);
-  if (total <= 0 || acres <= 0) return { buildings: b, razed: 0 };
-  const take = Math.min(acres, total);
-  const out = { ...b };
-  let razed = 0;
-  for (const k of BUILDING_TYPES) {
-    const cut = Math.min(out[k], Math.round((b[k] / total) * take));
-    out[k] -= cut;
-    razed += cut;
-  }
-  return { buildings: out, razed };
 }
 
 const ZERO_LOSS: UnitLosses = { troops: 0, jets: 0, turrets: 0, tanks: 0 };

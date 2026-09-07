@@ -1,8 +1,9 @@
 # Earth 2025 Revival
 
 A solo-player, browser-playable nation-management strategy game modeled on
-**Earth Empires / Earth 2025**, with all player-vs-player combat replaced by
-combat against **scripted-growth AI archetypes** (PvE).
+**Earth Empires / Earth 2025**. All player-vs-player is replaced by **AI
+opponents that run the same real economy and take the same real actions you
+do** (PvE) — no scripted growth curve.
 
 ## Run it
 
@@ -23,9 +24,10 @@ npm run build      # typecheck (tsc -b, strict) + production bundle
    action (see below). **Every action advances the world one tick** — your
    economy runs, and every undefeated archetype takes its turn (a Raider may
    attack you back).
-3. **End Day** refills the turn pool, advances the day, and runs one more tick.
-   Archetype growth is keyed to the **day**, so it doesn't matter how much you
-   click.
+3. **End Day** refills the turn pool and advances the day. Each archetype gets
+   one real action per action you take during the day, plus a catch-up pass on
+   End Day that drains whatever turn budget it hasn't spent — so an idle
+   player never shortchanges the AI and an active one never grants it extra.
 4. **Win — hybrid condition (mirrors Earth 2025's "score at set end"):**
    - **Elimination victory** — wipe out every enemy nation before the deadline.
    - **Net-worth victory** — reach the season deadline holding the #1 net worth.
@@ -107,11 +109,12 @@ src/
     covert.ts          resolveCovertOp — SPAL vs counter-intel; 6 EE spy ops + heat
     missile.ts         resolveMissile — Chemical / Cruise / Nuclear vs SDI
     archetype/
-      templates.ts     the 4 archetypes: decision table + growth curves +
-                       building/unit mix + government + baseline
-      grow.ts          logistic curve  L / (1 + e^(-k(day - t0)))
+      templates.ts     the 4 archetypes: decision table + unit/building target
+                       mixes + priority lists + spend fractions + government
+                       (all start from one shared baseline)
       decide.ts        weighted-random action selection (the "decision engine")
-      applyTurn.ts     one archetype turn: bounded daily growth + one action
+      applyTurn.ts     one archetype turn: real economy tick + one real action,
+                       gated by genuine affordability (same as the player)
     networth.ts        netWorth(nation) + computeStandings(world) → season ranking
     season.ts          generateSeason(config, tier) → deterministic enemy roster
     turn.ts            applyPlayerTurn(world, action) → tick + resolve season end
@@ -126,12 +129,13 @@ src/
 - **The engine is pure and deterministic.** Same world + same actions ⇒ identical
   result. All randomness flows through one RNG rehydrated from `world.rngState`.
 - **One combat formula.** `resolveCombat` takes two `Nation` stat bundles; it has
-  no idea whether either side is human or AI.
-- **Archetype growth is bounded.** A logistic curve per stat is the hard
-  envelope; decision-table actions may nudge a stat to at most
-  `curve * config.archetypeStatCap`, never compound past it. Archetypes don't run
-  the economy sim and never starve — their population/food/oil/tech are derived
-  from the same curve so recon and net worth have real numbers.
+  no idea whether either side is human or AI. Combat and spying are
+  multi-target — any nation can hit any other.
+- **Archetypes play the real game.** They spend real cash and a real daily turn
+  budget on the same actions the player uses (`build`, `buyMilitary`,
+  `explore`, `setGovernment`, ...), gated by genuine affordability. No growth
+  curve, no special-cased shortcut — their ceiling is the same one the player
+  hits (land, income, turns).
 - **Difficulty and government are data**, fed into the same code — no
   per-difficulty or per-government code paths.
 
@@ -143,30 +147,10 @@ src/
 - **Add a government:** entry in `src/engine/government.ts`.
 - **Tune balance:** every number lives in `src/engine/config.ts`.
 
-## Roadmap
+## Open work
 
-**Stage A — resources & upkeep (done):** population/jobs/tax, food & oil with
-per-turn upkeep + starvation, bank interest, 8 building types, tanks + spies
-units, a 6-category tech tree with a research focus, government types, factory
-auto-production, combat with tech/government multipliers and an oil cost.
-
-**Stage B — markets & treasury (done):** public market with a floating
-price/stock that drifts each day and reacts to your trades (units + food + oil,
-buy and sell); bank deposit/withdraw with daily compounding interest (rate
-capped, treasury discounted in net worth so hoarding isn't the meta).
-
-**Stage C — attack types & covert ops (done):** three attack types (strike /
-ransack / bombing run, each with its own oil cost and doctrine); spies + three
-covert ops (recon / sabotage / steal) resolved as a probability roll against the
-target's spies + towers + counter-intel; tower acres double as spy defence;
-fog-of-war — enemy composition, tech, stockpiles and government are hidden until
-a successful recon, then shown as an ageing snapshot. Archetypes use the new
-verbs too (Raiders ransack, Turtles run covert ops against you).
-
-### Known follow-ups
-
-Everything open — balance tuning, AI-feel recommendations, missing systems
-(boss, player-loss, demolish, missiles/SDI), UX, tech debt, and test gaps — is
-tracked in **[TODO.md](./TODO.md)**. Headline: the systems are done and bounded,
-but pacing is off (optimal play clears low tiers in 2–3 in-game days) and the AI
-doesn't yet pressure a defensive player.
+Everything unfinished, feeling wrong, or worth adding — balance & the
+difficulty ladder, per-archetype AI calibration, the public market, UX,
+tech debt, test gaps, open design questions — is tracked in
+**[TODO.md](./TODO.md)**. Archetype behaviour specifically has its own
+reference at **[docs/archetype-calibration.md](./docs/archetype-calibration.md)**.

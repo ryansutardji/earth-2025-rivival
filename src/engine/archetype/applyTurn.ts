@@ -241,19 +241,57 @@ function buildTowardMix(self: Nation, template: ArchetypeTemplate): { nation: Na
 }
 
 /**
- * Target-selection: consider every other living nation. Fresh intel on a
- * candidate always wins (fresher first); failing that, a live grudge against
- * them wins (bigger grudge first); failing that, random. Lexicographic, not
- * additive — matches the design: intel beats grudge beats nothing.
+ * Attack target-selection. Every candidate here already cleared `attackViable`
+ * (the AI reckons it can win). Rank them by expected payoff — *not* by how
+ * recently they were scouted, which is what used to funnel every AI onto the
+ * same unlucky nation and farm it out of the game:
+ *
+ *   score = sizeScore × grudgeBonus × futilityDrag
+ *
+ *   sizeScore   — theirLand / myLand, clamped: punch up at whoever's ahead,
+ *                 leave the cripples alone (their score floors out low)
+ *   grudgeBonus — a live grievance nudges them up (≤1.5×), never an override
+ *   futilityDrag— shaves a target this nation keeps bouncing off, before the
+ *                 `attackFutilityThreshold` cutoff drops it entirely
+ *
+ * There's no "can I win?" term: `attackViable` no longer pre-filters on the
+ * power math either, so the AI will swing at a stronger nation and let
+ * combat's lopsided-fight variance decide. Highest score wins; ties break
+ * toward more land, then a seeded coin flip. See config.targeting and
+ * docs/archetype-calibration.md.
  */
-function pickTarget(self: Nation, candidates: Nation[], day: number, rng: Rng): Nation | undefined {
+function pickAttackTarget(self: Nation, candidates: Nation[], _day: number, rng: Rng): Nation | undefined {
+  if (candidates.length === 0) return undefined;
+  const t = config.targeting;
+  const scored = candidates.map((c) => {
+    const sizeScore = clamp(c.land / Math.max(1, self.land), t.sizeRatioMin, t.sizeRatioMax);
+
+    const grudge = self.grudges[c.id];
+    const grudgeBonus = grudge ? 1 + t.grudgeWeight * Math.min(grudge.score / t.grudgeSaturation, 1) : 1;
+
+    const futility = self.attackFutility[c.id] ?? 0;
+    const futilityDrag = clamp(1 - t.futilityDrag * (futility / config.attackFutilityThreshold), t.futilityDragFloor, 1);
+
+    return { c, score: sizeScore * grudgeBonus * futilityDrag, rnd: rng() };
+  });
+  scored.sort((a, b) => b.score - a.score || b.c.land - a.c.land || a.rnd - b.rnd);
+  return scored[0]!.c;
+}
+
+/**
+ * Covert target-selection. A spy op exists to turn an unknown into a known, so
+ * prefer a candidate with *no* fresh intel; failing that a grudge (get eyes on
+ * whoever's coming after us); failing that random. Unlike the attack pick this
+ * ignores size — the op is cheap and intel on anyone is useful.
+ */
+function pickCovertTarget(self: Nation, candidates: Nation[], day: number, rng: Rng): Nation | undefined {
   if (candidates.length === 0) return undefined;
   const scored = candidates.map((c) => {
     const intel = self.intel[c.id];
     const fresh = intel !== undefined && day - intel.day <= config.intelStalenessDays;
     const grudge = self.grudges[c.id];
-    const tier = fresh ? 0 : grudge ? 1 : 2;
-    const tiebreak = fresh ? -(day - intel!.day) : grudge ? grudge.score : rng();
+    const tier = !fresh ? 0 : grudge ? 1 : 2;
+    const tiebreak = tier === 1 ? grudge!.score : rng();
     return { c, tier, tiebreak };
   });
   scored.sort((a, b) => (a.tier !== b.tier ? a.tier - b.tier : b.tiebreak - a.tiebreak));
@@ -309,23 +347,20 @@ function chooseAttack(
 }
 
 /**
- * Can this nation realistically beat `target` in a straight fight right now?
- * "No" if experience says so (it's been repelled by them recently —
- * `attackFutility` at/over threshold) or if a fresh spy snapshot lets it do
- * the real power math and come up short. With neither signal it assumes yes:
- * an unscouted, never-fought nation stays a candidate — the only way to
- * learn is to spy them or take the swing.
+ * Should this nation keep `target` on its attack list at all? The only hard
+ * "no" left is experience: it's been repelled by them enough times recently
+ * (`attackFutility` at/over threshold) that throwing more turns at them is
+ * clearly pointless. The old pre-emptive power check — "I've scouted them and
+ * my offense is below their defense × margin, so drop them" — has been
+ * removed: it was what let a runaway leader fall off everyone's list the
+ * moment they got scouted and then grow unopposed. Now the AI will still
+ * swing at a stronger nation and let combat's lopsided-fight variance decide;
+ * `pickAttackTarget`'s size/grudge score still means it mostly picks sensible
+ * targets, and `attackFutility` pulls it off a hopeless one after a couple of
+ * tries.
  */
-function attackViable(self: Nation, target: Nation, day: number): boolean {
-  if ((self.attackFutility[target.id] ?? 0) >= config.attackFutilityThreshold) return false;
-  const intel = self.intel[target.id];
-  const fresh = intel !== undefined && day - intel.day <= config.intelStalenessDays;
-  if (fresh) {
-    const myOff = offensePower(self);
-    const theirDef = defensePower(target) + config.homeDefenseBonus + target.land * config.homeDefenseLandFactor;
-    if (myOff < theirDef * config.attackViabilityMargin) return false;
-  }
-  return true;
+function attackViable(self: Nation, target: Nation, _day: number): boolean {
+  return (self.attackFutility[target.id] ?? 0) < config.attackFutilityThreshold;
 }
 
 /** No fresh intel yet? Go get some. Otherwise mix up harmful ops. */
@@ -440,9 +475,13 @@ export function applyArchetypeTurn(
     }
     // Explore only enters the roll once empty land is running low — expand
     // the borders so there's room to keep building. Turns-only, no cash gate.
+    // Two gates: the archetype's own preference (tunable), and a hard cap at
+    // `exploreMaxEmptyLandFraction` (the game rule — never explore a mostly
+    // empty nation) that binds no matter how the preference is set.
     if (
       self.aiTurnsRemaining < config.turnCost.explore ||
-      emptyAcres(self) > self.land * config.archetypeExploreLandFraction
+      emptyAcres(self) > self.land * config.archetypeExploreLandFraction ||
+      emptyAcres(self) >= self.land * config.exploreMaxEmptyLandFraction
     ) {
       weights.explore = 0;
     }
@@ -469,7 +508,10 @@ export function applyArchetypeTurn(
         self = { ...self, aiTurnsRemaining: self.aiTurnsRemaining - config.turnCost.cash };
         revenueMult = config.cashTurnBonus;
         log.push(`${self.name} cashed a turn for a revenue boost.`);
-      } else if (self.aiTurnsRemaining >= config.turnCost.explore) {
+      } else if (
+        self.aiTurnsRemaining >= config.turnCost.explore &&
+        emptyAcres(self) < self.land * config.exploreMaxEmptyLandFraction
+      ) {
         const res = explore(self, self.aiTurnsRemaining, seasonLengthDays);
         if (res.ok) {
           self = { ...res.nation, aiTurnsRemaining: res.turnsRemaining };
@@ -495,7 +537,7 @@ export function applyArchetypeTurn(
         self = r.nation;
         log.push(...r.log);
       } else if (action === "attackPlayer") {
-        const picked = pickTarget(self, attackCandidates, day, rng);
+        const picked = pickAttackTarget(self, attackCandidates, day, rng);
         if (picked) {
           const { type, orders } = chooseAttack(self, picked, day, template, rng);
           const res = resolveCombat(self, picked, type, rng, orders);
@@ -519,7 +561,7 @@ export function applyArchetypeTurn(
           log.push(...res.result.log);
         }
       } else if (action === "covertPlayer") {
-        const picked = pickTarget(self, candidates, day, rng);
+        const picked = pickCovertTarget(self, candidates, day, rng);
         if (picked) {
           const heat = picked.covertHeat;
           const op = pickCovertOp(self, picked, day, rng);

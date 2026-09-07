@@ -136,6 +136,15 @@ to do with that. All of it lives in `src/engine/archetype/`.
   starvation because the nudge is too weak in an active crisis, upgrade it
   to a forced "build farms this turn until bushels are back in the black"
   (same mechanism as the mandatory government / tax-rate first actions).
+- [ ] **P2 · S — Targeting anti-snowball: two follow-ups if the pack still
+  clumps.** `pickAttackTarget` now ranks targets by
+  `sizeScore × winScore × grudgeBonus × futilityDrag` (highest wins) instead
+  of "whoever I spied most recently" — see `config.targeting` and the
+  calibration doc. If sims still show every AI converging on one nation:
+  (a) switch from highest-wins to weighted-random over the score, and
+  (b) add an explicit `recentlyAttacked` decay counter on `Nation` (same
+  pattern as grudges / `attackFutility`) so a nation already being swarmed
+  sheds attackers — needs a small `SCHEMA_VERSION` bump.
 - [ ] **P2 · S — Standard/Planned attacks don't get force-sized.** With
   fresh intel, the single-unit-type exploit attacks (Bombing/Artillery/
   Guerilla) size their force to comfortably clear the target's real defense;
@@ -214,42 +223,7 @@ to do with that. All of it lives in `src/engine/archetype/`.
 
 ---
 
-## 5. Code cleanliness (doesn't affect players, makes future work easier)
-
-- [ ] **P1 · S — The main turn-handling code repeats the same pattern over
-  and over.** Every type of player action goes through nearly identical
-  boilerplate. Could be simplified into one shared helper, cutting that file
-  down by roughly 60%.
-- [ ] **P2 · S — Two nearly-identical chunks of "destroy some buildings"
-  logic exist in different files.** One in the combat code, one in the spy
-  -ops code. Should be merged into one shared piece of code both can use.
-- [ ] **P2 · S — One data shape is copy-pasted instead of reused.** The
-  "what an enemy shows you about themselves" shape duplicates most of the
-  full nation data shape instead of being derived from it.
-- [ ] **P2 · S — One leftover flag in the economy code is awkward and only
-  used in one place.** Minor internal cleanup, not user-facing.
-- [ ] **P2 · S — `Nation.lastGrowthDay` is now dead weight.** Existed only to
-  drive the old growth-ceiling system's once-per-day step (§2, now deleted).
-  Nothing reads or writes it anymore — harmless, but worth removing along
-  with its plumbing in `factory.ts`/`types.ts` next time either file is
-  touched.
-- [ ] **P2 · S — Some repeated lookups into the settings file could be
-  simplified.** A few spots reach into the same nested config values
-  repeatedly across different files; a couple of small helper functions would
-  avoid the repetition.
-- [ ] **P2 · S — No automated checks run before changes are considered
-  "safe."** There's no continuous-integration setup that automatically runs
-  the type-checker, tests, and build on every change.
-- [ ] **P2 · S — The required Node.js version isn't pinned anywhere.** Minor
-  housekeeping so everyone's using a consistent version.
-- [ ] **P2 · S — The README is trying to do too many jobs at once.** It
-  currently mixes architecture notes, how-to-play instructions, and a roadmap
-  all in one place. The roadmap/known-issues part should really just live
-  here in this file, and the README trimmed down.
-
----
-
-## 6. Gaps in automated testing
+## 5. Gaps in automated testing
 
 - [ ] **P1 — Government types aren't tested end-to-end.** E.g., confirming a
   Tyranny nation actually captures more land, and a Democracy nation actually

@@ -147,7 +147,7 @@ const RAIDER_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
   attackPlayer: 4,
   covertPlayer: 1,
   buildMilitary: 5,
-  buildEconomy: 2,
+  buildEconomy: 4,
   explore: 3,
 };
 
@@ -160,26 +160,28 @@ const RAIDER_ATTACK_TYPE_MIX: ArchetypeTemplate["attackTypeMix"] = {
   bombing: 0.05,
 };
 
-/** 75% to fighting units; turrets halved; spies trimmed but not gutted so it
- * still scouts a little. */
-const RAIDER_PRODUCTION: ProductionMix = { troops: 25, jets: 25, turrets: 10, tanks: 25, spies: 15 };
+/** Offense-forward, but with a turret share big enough to keep rebuilding a
+ * defensive spine — a lean raider still folds if it's the softest nation on
+ * the map (see docs). Spies trimmed but not gutted so it still scouts. */
+const RAIDER_PRODUCTION: ProductionMix = { troops: 25, jets: 25, turrets: 15, tanks: 20, spies: 15 };
 
 /** Cheap effective offense (troops/jets) carries it; tanks modest to stay
- * affordable; turrets minimal. */
-const RAIDER_TARGET_MIX: UnitMix = { troops: 35, jets: 35, turrets: 10, tanks: 20 };
+ * affordable; turrets a real floor (~18%), not an afterthought. */
+const RAIDER_TARGET_MIX: UnitMix = { troops: 32, jets: 32, turrets: 18, tanks: 18 };
 const RAIDER_BUY_PRIORITY: readonly PurchasableUnit[] = ["troops", "jets", "tanks", "turrets"];
 
-/** Industrial complexes as the passive-army engine; military bases up to
- * relieve the upkeep brake; near-zero pure-economy; labs 0 (archetypes don't
- * steer research focus). */
+/** Industrial complexes as the passive-army engine + military bases to relieve
+ * the upkeep brake, but a real income base too (EZ + residences) so it can
+ * grow land and replace combat losses instead of falling behind and getting
+ * farmed. Labs 0 (archetypes don't steer research focus). */
 const RAIDER_BUILDING_MIX: BuildingMix = buildingMix({
-  industrialComplexes: 30,
-  constructionSites: 20,
-  militaryBases: 15,
-  oilRigs: 15,
+  industrialComplexes: 22,
+  constructionSites: 15,
+  enterpriseZones: 14,
+  militaryBases: 12,
   farms: 12,
-  enterpriseZones: 4,
-  residences: 4,
+  residences: 10,
+  oilRigs: 15,
   researchLabs: 0,
 });
 /** Oil first — a Raider that hits 0 oil literally can't attack — then farms,

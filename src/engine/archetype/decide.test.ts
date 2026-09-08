@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { decideAction, effectiveWeights } from "./decide";
-import { ARCHETYPES, type ArchetypeAction } from "./templates";
+import { decideAction } from "./decide";
+import { ARCHETYPES, ARCHETYPE_ACTIONS, type ArchetypeAction } from "./templates";
 import { rngFromSeed } from "../rng";
 
 describe("decideAction", () => {
@@ -15,10 +15,10 @@ describe("decideAction", () => {
       explore: 0,
     };
     const N = 20000;
-    for (let i = 0; i < N; i++) counts[decideAction(template, 1, rng.next)]++;
+    for (let i = 0; i < N; i++) counts[decideAction(template, rng.next)]++;
 
-    const w = effectiveWeights(template, 1);
-    const totalW = w.attackPlayer + w.covertPlayer + w.buildMilitary + w.buildEconomy + w.explore;
+    const w = template.decisionTable;
+    const totalW = ARCHETYPE_ACTIONS.reduce((s, a) => s + w[a], 0);
     for (const a of Object.keys(counts) as ArchetypeAction[]) {
       expect(counts[a] / N).toBeCloseTo(w[a] / totalW, 1);
     }
@@ -30,21 +30,25 @@ describe("decideAction", () => {
     const template = { ...ARCHETYPES.economic, decisionTable: { ...ARCHETYPES.economic.decisionTable, attackPlayer: 0 } };
     const rng = rngFromSeed(7);
     for (let i = 0; i < 5000; i++) {
-      expect(decideAction(template, 1, rng.next)).not.toBe("attackPlayer");
+      expect(decideAction(template, rng.next)).not.toBe("attackPlayer");
     }
   });
 
-  it("aggression skew raises the attackPlayer share", () => {
-    const template = ARCHETYPES.raider;
-    const low = rngFromSeed(11);
-    const high = rngFromSeed(11);
-    let lowAttacks = 0;
-    let highAttacks = 0;
+  it("a heavier attackPlayer weight raises the attackPlayer share", () => {
+    // Season-heat scaling is applied to the weights by the caller before this
+    // runs, so it reduces to "bigger weight => picked more often".
+    const template = ARCHETYPES.balanced;
+    const light = { ...template, decisionTable: { ...template.decisionTable, attackPlayer: 1 } };
+    const heavy = { ...template, decisionTable: { ...template.decisionTable, attackPlayer: 12 } };
+    const lo = rngFromSeed(11);
+    const hi = rngFromSeed(11);
+    let loAttacks = 0;
+    let hiAttacks = 0;
     for (let i = 0; i < 8000; i++) {
-      if (decideAction(template, 0.5, low.next) === "attackPlayer") lowAttacks++;
-      if (decideAction(template, 2.0, high.next) === "attackPlayer") highAttacks++;
+      if (decideAction(light, lo.next) === "attackPlayer") loAttacks++;
+      if (decideAction(heavy, hi.next) === "attackPlayer") hiAttacks++;
     }
-    expect(highAttacks).toBeGreaterThan(lowAttacks);
+    expect(hiAttacks).toBeGreaterThan(loAttacks);
   });
 
   it("degenerate all-zero table falls back to buildEconomy", () => {
@@ -53,6 +57,6 @@ describe("decideAction", () => {
       decisionTable: { attackPlayer: 0, covertPlayer: 0, buildMilitary: 0, buildEconomy: 0, explore: 0 },
     };
     const rng = rngFromSeed(1);
-    expect(decideAction(dead, 1, rng.next)).toBe("buildEconomy");
+    expect(decideAction(dead, rng.next)).toBe("buildEconomy");
   });
 });

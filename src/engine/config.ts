@@ -4,7 +4,7 @@
  * source figure exists; the rest are tuned for this game's compressed season.
  */
 
-export const SCHEMA_VERSION = 10;
+export const SCHEMA_VERSION = 11;
 
 export const config = {
   // ---- Season ----
@@ -225,7 +225,19 @@ export const config = {
   cashLootPct: 0.15,
   bushelLootPct: 0.12,
   techLootPct: 0.08,
-  buildingCapturePct: 0.5, // of the land captured, this share arrives as buildings
+  /** Fraction of the defender's oil reserve seized on a won land-grab. */
+  oilLootPct: 0.2,
+  /** Captured acres arrive fully built: the buildings on them transfer to the
+   * attacker (capped at what the defender actually had), rather than being
+   * razed. 1.0 = every captured acre keeps its building. */
+  buildingCapturePct: 1.0,
+  /** Each attack a nation suffers pulls this fraction of its current military
+   * (every unit type) off the wall for `defenseSuppressionTurns` turns —
+   * stacks per attack, so sustained pressure wears a wall down even through
+   * repeated repels. Units stay in `military` (net worth, upkeep); only
+   * `availableMilitary` drops. */
+  defenseSuppressionPct: 0.15,
+  defenseSuppressionTurns: 50,
   winnerUnitLossPct: 0.05,
   loserUnitLossPct: 0.16,
   repelledLossPct: 0.12,
@@ -301,6 +313,13 @@ export const config = {
    * land it can't build on. A broke archetype in this state falls back to
    * cashing a turn instead. */
   exploreMaxEmptyLandFraction: 0.5,
+  /** When empty land is at/above `exploreMaxEmptyLandFraction`, an archetype
+   * that can still afford to build has its `buildEconomy` weight raised to at
+   * least this — a strong pull to fill conquered/idle land in (which is where
+   * net worth actually comes from) rather than pour more turns into attacking.
+   * Only bites a nation that's been hoarding empty acres (in practice the
+   * Raider); Economic/Balanced/Turtle build continuously and never trip it. */
+  emptyLandBuildWeight: 9,
   /** A spy snapshot older than this many days is too stale to inform a
    * "smart" target/attack-type choice — falls back to the cautious default. */
   intelStalenessDays: 10,

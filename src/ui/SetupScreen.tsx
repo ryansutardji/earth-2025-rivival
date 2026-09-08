@@ -40,8 +40,12 @@ export function SetupScreen() {
           ))}
         </select>
         <p className="text-xs text-neutral-500">
-          growth ×{activeTier.growthMultiplier} · starting size ×{activeTier.baselineMult} · aggression ×
-          {activeTier.aggressionSkew}
+          Everyone starts the same size — difficulty is tempo:{" "}
+          combat opens ~{Math.floor(setup.seasonLengthDays * activeTier.attackUnlockFraction) + 1 <= 1
+            ? "day 1"
+            : `day ${Math.floor(setup.seasonLengthDays * activeTier.attackUnlockFraction) + 1}`}{" "}
+          for the AI · late-game aggression peaks ×{activeTier.seasonHeatMaxMult} · AI gets{" "}
+          {50 + activeTier.aiTurnPoolDelta} turns/day (you get 50)
         </p>
       </section>
 
@@ -60,6 +64,34 @@ export function SetupScreen() {
           ))}
         </select>
         <p className="text-xs text-neutral-500">{GOVERNMENTS[setup.playerGovernment].blurb}</p>
+      </section>
+
+      {/* Opponent governments */}
+      <section className="space-y-2">
+        <label className="block text-xs uppercase tracking-wide text-neutral-500">Opponent governments</label>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            ["archetype", "By archetype", "Each archetype's calibrated pick (Raider→Tyranny, Turtle→Theocracy, …)."],
+            ["random", "Random", "A random government per opponent — same roster, different balance every season."],
+          ] as const).map(([mode, label, blurb]) => {
+            const on = (setup.governmentMode ?? "archetype") === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                onClick={() => setSetup({ governmentMode: mode })}
+                className={`rounded border px-3 py-2 text-left text-sm transition ${
+                  on
+                    ? "border-emerald-600 bg-emerald-950/40 text-neutral-100"
+                    : "border-neutral-800 bg-neutral-900 text-neutral-500 hover:border-neutral-700"
+                }`}
+              >
+                <span className="font-semibold">{label}</span>
+                <span className="mt-1 block text-[11px] text-neutral-500">{blurb}</span>
+              </button>
+            );
+          })}
+        </div>
       </section>
 
       {/* Roster size */}

@@ -12,9 +12,9 @@ import type { DifficultyTier, Nation } from "../types";
 const tier: DifficultyTier = {
   id: "test",
   label: "Test",
-  growthMultiplier: 1,
-  baselineMult: 1,
-  aggressionSkew: 1,
+  attackUnlockFraction: 0.2,
+  seasonHeatMaxMult: 2.4,
+  aiTurnPoolDelta: 0,
 };
 const SEASON_DAYS = 30;
 const TAX = config.taxComfortThresholdDefault;
@@ -255,7 +255,12 @@ describe("applyArchetypeTurn", () => {
   });
 
   it("backs off a target it keeps getting repelled by, and redirects elsewhere", () => {
-    const startDay = attacksUnlockDay(SEASON_DAYS);
+    // Past both the combat unlock *and* the Raider's early-attack hold
+    // (`attackHoldUntilFraction`), so it will actually roll attacks.
+    const startDay = Math.max(
+      attacksUnlockDay(SEASON_DAYS),
+      Math.ceil(SEASON_DAYS * ARCHETYPES.raider.attackHoldUntilFraction) + 1,
+    );
     // Healthy economy so the upkeep brake stays dormant — this test is about
     // the futility/back-off mechanic, not about affording an army. Seed a
     // grudge against the wall so it targets it first (deterministic), then
@@ -395,6 +400,34 @@ describe("applyArchetypeTurn", () => {
     } finally {
       (config as { archetypeExploreLandFraction: number }).archetypeExploreLandFraction = orig;
     }
+  });
+
+  it("land-hoard brake: a cash-rich, mostly-empty nation pours turns into building it out", () => {
+    // 75% empty but plenty of cash — explore is capped, and the buildEconomy
+    // weight bump should make it fill the land in fast rather than sit on it.
+    const self = seedNation("raider", {
+      government: ARCHETYPES.raider.government,
+      land: 2000,
+      buildings: { constructionSites: 500 }, // 1500 empty acres
+      cash: 400_000,
+      oil: 50_000,
+      bushels: 300_000,
+      military: { troops: 50, spies: 0 }, // negligible army so attack/covert stay masked
+    });
+    const player = makeNation({ id: "player", isPlayer: true, defeated: true });
+    const rng = rngFromSeed(11).next;
+    const builtBefore = builtAcres(self);
+    let input: RosterTurnInput = { player, enemies: [self] };
+    for (let day = 1; day <= 6; day++) {
+      for (let k = 0; k < 12; k++) {
+        const res = applyArchetypeTurn(self.id, input, tier, day, SEASON_DAYS, TAX, rng);
+        input = { player: res.player, enemies: res.enemies };
+      }
+      input = newDay(input);
+    }
+    const after = input.enemies[0]!;
+    expect(builtAcres(after) - builtBefore).toBeGreaterThan(300); // filled a big chunk in
+    expect(after.land).toBe(2000); // and didn't explore while doing it
   });
 
   it("upkeep brake: won't buy more military when its economy can't feed it", () => {

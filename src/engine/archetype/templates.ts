@@ -62,6 +62,12 @@ export interface ArchetypeTemplate {
   militarySpendFraction: number;
   /** Share of cash committed per "build economy" decision. */
   buildSpendFraction: number;
+  /** "Stay quiet early" hold: this archetype won't roll `attackPlayer` until
+   * the season is this fraction through, even after combat unlocks — days
+   * spent building economy + army instead. 0 = attack as soon as combat is
+   * legal (the default). Raider uses a mid-season hold ("sleeper": build up,
+   * then go all-out). Covert ops and defense are unaffected. */
+  attackHoldUntilFraction: number;
   baseline: {
     land: number;
     cash: number;
@@ -86,17 +92,48 @@ const zeroMil = (): Military => ({ troops: 0, turrets: 0, jets: 0, tanks: 0, spi
 // differ per archetype; `baseline` is now shared (see SHARED_BASELINE).
 // ---------------------------------------------------------------------------
 
-const SHARED_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
+// Only Balanced runs this now — Raider / Economic / Turtle each have their own
+// decision table below. The rest of the SHARED_* recipe (production, target
+// mix, buildings, priorities, spend fractions) is still genuinely shared;
+// personality lives almost entirely in the decision table (see
+// docs/archetype-calibration.md).
+const BALANCED_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
   attackPlayer: 2,
   covertPlayer: 1,
-  buildMilitary: 6,
-  buildEconomy: 3,
+  // Genuinely even build/buy split. (Was 6/3 — a military lean left over from
+  // folding the removed `reinforceDefense` weight into `buildMilitary`; in a
+  // net-worth race that quietly sank Balanced to last place.)
+  buildMilitary: 4,
+  buildEconomy: 4,
   // Only ever in play once empty land drops to `archetypeExploreLandFraction`
   // of total (see applyTurn.ts) — otherwise the affordability mask zeroes it.
-  // Matched to buildEconomy so the two roughly balance: explore adds land,
-  // build consumes it, keeping empty acres hovering near the threshold.
   explore: 3,
 };
+
+/** Economic — economy-heavy weights, barely arms itself. "High reward, soft
+ * target." Everything else = shared. Government stays Democracy (Republic's
+ * +20% PCI / +20% explore made it a runaway). */
+const ECONOMIC_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
+  attackPlayer: 1,
+  covertPlayer: 1,
+  buildMilitary: 3,
+  buildEconomy: 6,
+  explore: 3,
+};
+
+/** Turtle — pours turns into military, which the turret-heavy `targetMix`
+ * turns almost entirely into wall. Attacks rarely (weight 1) — just enough to
+ * shove back and suppress a nation that keeps pressuring it, not a real
+ * offensive lean. High floor (rarely dies), low ceiling. */
+const TURTLE_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
+  attackPlayer: 1,
+  covertPlayer: 1,
+  buildMilitary: 5,
+  buildEconomy: 4,
+  explore: 2,
+};
+/** Overrides `SHARED_TARGET_MIX` — the wall is the whole identity. */
+const TURTLE_TARGET_MIX: UnitMix = { troops: 20, jets: 10, turrets: 55, tanks: 15 };
 
 const SHARED_ATTACK_TYPE_MIX: ArchetypeTemplate["attackTypeMix"] = {
   standard: 0.7,
@@ -129,6 +166,9 @@ const SHARED_BUILD_PRIORITY: readonly (keyof Buildings)[] = [
 const DEFAULT_MILITARY_SPEND_FRACTION = 0.5;
 const DEFAULT_BUILD_SPEND_FRACTION = 0.5;
 
+/** Most archetypes attack the moment combat unlocks. */
+const DEFAULT_ATTACK_HOLD_UNTIL_FRACTION = 0;
+
 /** The one starting position — used by every archetype at `baselineMult` 1.0
  * and by `makePlayerNation`. */
 const SHARED_BASELINE: ArchetypeTemplate["baseline"] = {
@@ -139,8 +179,14 @@ const SHARED_BASELINE: ArchetypeTemplate["baseline"] = {
 };
 
 // ---------------------------------------------------------------------------
-// Raider — calibrated. Aggressive, offense-focused land-grabber. See
-// docs/archetype-calibration.md "Raider — calibrated values".
+// Raider — calibrated. Every knob is Balanced's *except* the decision table
+// (more aggressive) and the government (Tyranny). Sim sweeps showed that once
+// the Raider ran Balanced's economy + defensive foundation and Tyranny's
+// income penalty was softened to −10% (see government.ts), a purely
+// more-aggressive decision table made it a genuinely strong, distinct
+// archetype — it out-conquers and out-grows Balanced. The elaborate
+// offense-shaped recipes it used to carry were compensating for handicaps
+// that just needed removing. See docs/archetype-calibration.md.
 // ---------------------------------------------------------------------------
 
 const RAIDER_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
@@ -151,61 +197,22 @@ const RAIDER_DECISION_TABLE: ArchetypeTemplate["decisionTable"] = {
   explore: 3,
 };
 
-/** Standard-heavy land grab with a splash of Planned; bombing (jets vs
- * turrets, captures nothing) all but dropped. */
-const RAIDER_ATTACK_TYPE_MIX: ArchetypeTemplate["attackTypeMix"] = {
-  standard: 0.75,
-  planned: 0.15,
-  guerilla: 0.05,
-  bombing: 0.05,
-};
-
-/** Offense-forward, but with a turret share big enough to keep rebuilding a
- * defensive spine — a lean raider still folds if it's the softest nation on
- * the map (see docs). Spies trimmed but not gutted so it still scouts. */
-const RAIDER_PRODUCTION: ProductionMix = { troops: 25, jets: 25, turrets: 15, tanks: 20, spies: 15 };
-
-/** Cheap effective offense (troops/jets) carries it; tanks modest to stay
- * affordable; turrets a real floor (~18%), not an afterthought. */
-const RAIDER_TARGET_MIX: UnitMix = { troops: 32, jets: 32, turrets: 18, tanks: 18 };
-const RAIDER_BUY_PRIORITY: readonly PurchasableUnit[] = ["troops", "jets", "tanks", "turrets"];
-
-/** Industrial complexes as the passive-army engine + military bases to relieve
- * the upkeep brake, but a real income base too (EZ + residences) so it can
- * grow land and replace combat losses instead of falling behind and getting
- * farmed. Labs 0 (archetypes don't steer research focus). */
-const RAIDER_BUILDING_MIX: BuildingMix = buildingMix({
-  industrialComplexes: 22,
-  constructionSites: 15,
-  enterpriseZones: 14,
-  militaryBases: 12,
-  farms: 12,
-  residences: 10,
-  oilRigs: 15,
-  researchLabs: 0,
-});
-/** Oil first — a Raider that hits 0 oil literally can't attack — then farms,
- * then the engine. */
-const RAIDER_BUILD_PRIORITY: readonly (keyof Buildings)[] = [
-  "oilRigs", "farms", "industrialComplexes", "militaryBases",
-  "constructionSites", "enterpriseZones", "residences", "researchLabs",
-];
-
 export const ARCHETYPES: Record<ArchetypeTemplate["id"], ArchetypeTemplate> = {
   raider: {
     id: "raider",
     label: "Raider",
-    blurb: "Aggressive. Pours resources into offense and comes after you.",
+    blurb: "Aggressive. Attacks far more than anyone else and comes after you.",
     government: "tyranny",
     decisionTable: RAIDER_DECISION_TABLE,
-    attackTypeMix: RAIDER_ATTACK_TYPE_MIX,
-    production: RAIDER_PRODUCTION,
-    targetMix: RAIDER_TARGET_MIX,
-    buyPriority: RAIDER_BUY_PRIORITY,
-    buildingMix: RAIDER_BUILDING_MIX,
-    buildPriority: RAIDER_BUILD_PRIORITY,
-    militarySpendFraction: 0.7,
-    buildSpendFraction: 0.5,
+    attackTypeMix: SHARED_ATTACK_TYPE_MIX,
+    production: SHARED_PRODUCTION,
+    targetMix: SHARED_TARGET_MIX,
+    buyPriority: SHARED_BUY_PRIORITY,
+    buildingMix: SHARED_BUILDING_MIX,
+    buildPriority: SHARED_BUILD_PRIORITY,
+    militarySpendFraction: DEFAULT_MILITARY_SPEND_FRACTION,
+    buildSpendFraction: DEFAULT_BUILD_SPEND_FRACTION,
+    attackHoldUntilFraction: DEFAULT_ATTACK_HOLD_UNTIL_FRACTION,
     baseline: SHARED_BASELINE,
   },
 
@@ -214,7 +221,7 @@ export const ARCHETYPES: Record<ArchetypeTemplate["id"], ArchetypeTemplate> = {
     label: "Economic",
     blurb: "Grows land and treasury fast, neglects its army. High reward, soft target.",
     government: "democracy",
-    decisionTable: SHARED_DECISION_TABLE,
+    decisionTable: ECONOMIC_DECISION_TABLE,
     attackTypeMix: SHARED_ATTACK_TYPE_MIX,
     production: SHARED_PRODUCTION,
     targetMix: SHARED_TARGET_MIX,
@@ -223,6 +230,7 @@ export const ARCHETYPES: Record<ArchetypeTemplate["id"], ArchetypeTemplate> = {
     buildPriority: SHARED_BUILD_PRIORITY,
     militarySpendFraction: DEFAULT_MILITARY_SPEND_FRACTION,
     buildSpendFraction: DEFAULT_BUILD_SPEND_FRACTION,
+    attackHoldUntilFraction: DEFAULT_ATTACK_HOLD_UNTIL_FRACTION,
     baseline: SHARED_BASELINE,
   },
 
@@ -231,15 +239,16 @@ export const ARCHETYPES: Record<ArchetypeTemplate["id"], ArchetypeTemplate> = {
     label: "Turtle",
     blurb: "Walls up. Minimal growth, heavy turrets — low threat, tedious to crack.",
     government: "theocracy",
-    decisionTable: SHARED_DECISION_TABLE,
+    decisionTable: TURTLE_DECISION_TABLE,
     attackTypeMix: SHARED_ATTACK_TYPE_MIX,
     production: SHARED_PRODUCTION,
-    targetMix: SHARED_TARGET_MIX,
+    targetMix: TURTLE_TARGET_MIX,
     buyPriority: SHARED_BUY_PRIORITY,
     buildingMix: SHARED_BUILDING_MIX,
     buildPriority: SHARED_BUILD_PRIORITY,
     militarySpendFraction: DEFAULT_MILITARY_SPEND_FRACTION,
     buildSpendFraction: DEFAULT_BUILD_SPEND_FRACTION,
+    attackHoldUntilFraction: DEFAULT_ATTACK_HOLD_UNTIL_FRACTION,
     baseline: SHARED_BASELINE,
   },
 
@@ -248,7 +257,7 @@ export const ARCHETYPES: Record<ArchetypeTemplate["id"], ArchetypeTemplate> = {
     label: "Balanced",
     blurb: "No strong lean. Moderate at everything.",
     government: "democracy",
-    decisionTable: SHARED_DECISION_TABLE,
+    decisionTable: BALANCED_DECISION_TABLE,
     attackTypeMix: SHARED_ATTACK_TYPE_MIX,
     production: SHARED_PRODUCTION,
     targetMix: SHARED_TARGET_MIX,
@@ -257,6 +266,7 @@ export const ARCHETYPES: Record<ArchetypeTemplate["id"], ArchetypeTemplate> = {
     buildPriority: SHARED_BUILD_PRIORITY,
     militarySpendFraction: DEFAULT_MILITARY_SPEND_FRACTION,
     buildSpendFraction: DEFAULT_BUILD_SPEND_FRACTION,
+    attackHoldUntilFraction: DEFAULT_ATTACK_HOLD_UNTIL_FRACTION,
     baseline: SHARED_BASELINE,
   },
 };

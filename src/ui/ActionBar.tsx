@@ -4,7 +4,7 @@ import { config } from "../engine/config";
 import { TECH_CATEGORIES, UNIT_TYPES } from "../engine/types";
 import type { Buildings, Nation, ProductionMix, TechCategory } from "../engine/types";
 import type { UnitType } from "../engine/military";
-import { buildingsPerTurn, costPerBuilding } from "../engine/build";
+import { buildingsPerTurn, buildTurnCost, costPerBuilding } from "../engine/build";
 import { privateBuyPrice } from "../engine/military";
 import { exploreYield } from "../engine/explore";
 import { gov } from "../engine/government";
@@ -30,7 +30,12 @@ export function ActionBar({ player, disabled, seasonLengthDays }: { player: Nati
   const [govId, setGovId] = useState(player.government);
   const [prod, setProd] = useState<ProductionMix>(player.production);
 
-  const bpt = buildingsPerTurn(player);
+  const bpt = buildingsPerTurn(player, buildType);
+  const buildTurns = buildTurnCost(player, buildType, buildAcres);
+  const perAcreCost = costPerBuilding(player);
+  const emptyLand = player.land - Object.values(player.buildings).reduce((s, v) => s + v, 0);
+  const maxBuild = Math.min(Math.floor(player.cash / perAcreCost), emptyLand);
+  const buildCapped = Number.isFinite(buildAcres) && buildAcres > maxBuild;
 
   return (
     <section className="space-y-2.5 rounded border border-neutral-800 bg-neutral-900/40 p-3">
@@ -46,7 +51,8 @@ export function ActionBar({ player, disabled, seasonLengthDays }: { player: Nati
         </select>
         <input type="number" min={1} value={buildAcres} onChange={(e) => setBuildAcres(Number(e.target.value))} className={numInput} />
         <span className="text-xs text-neutral-600">
-          ≤{bpt}/turn · {money(costPerBuilding(player))}/ac · 1t
+          {bpt}/turn · {money(perAcreCost)}/ac · build {buildTurns}t
+          {buildCapped && <span className="text-amber-500"> · only {maxBuild.toLocaleString()} affordable</span>}
         </span>
         <button className={btn} disabled={disabled} onClick={() => act({ kind: "build", buildingType: buildType, acres: buildAcres })}>Build</button>
         <button className={btn} disabled={disabled} onClick={() => act({ kind: "demolish", buildingType: buildType, acres: buildAcres })}>Demolish</button>

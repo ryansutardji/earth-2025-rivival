@@ -19,7 +19,8 @@ import { gov } from "./government";
 import { medicalTechMult, strategyTechMult, weaponsTechMult } from "./tech";
 import { battleUnits, builtAcres, razeBuildings, totalMilitary } from "./economy";
 import { availableMilitary } from "./brigades";
-import type { AttackOrders, AttackType, Brigade, CombatResult, Military, Nation, Rng, UnitLosses } from "./types";
+import { BUILDING_TYPES } from "./types";
+import type { AttackOrders, AttackType, Brigade, Buildings, CombatResult, Military, Nation, Rng, SuppressedForce, UnitLosses } from "./types";
 
 type PowerTable = { troops: number; jets: number; turrets: number; tanks: number; spies: number };
 
@@ -153,10 +154,12 @@ export function resolveCombat(
   let landCaptured = 0;
   let cashLooted = 0;
   let bushelsLooted = 0;
+  let oilLooted = 0;
   let techLooted = 0;
   let populationKilled = 0;
   let buildingsRazed = 0;
   let nextDefBuildings = defender.buildings;
+  let capturedBuildingBundle: Buildings | undefined;
 
   // The defender's Medical tech softens their losses when they lose the battle.
   const defMed = won ? medicalTechMult(defender) : 1;
@@ -174,12 +177,21 @@ export function resolveCombat(
       landCaptured = Math.min(capturable, Math.round(raw * g.attackGainsMult * strat));
       cashLooted = Math.floor(defender.cash * config.cashLootPct * g.attackGainsMult * strat);
       bushelsLooted = Math.floor(defender.bushels * config.bushelLootPct * strat);
+      oilLooted = Math.floor(defender.oil * config.oilLootPct);
       techLooted = Math.floor(techPoints(defender) * config.techLootPct * strat);
 
-      const capturedBuildings = Math.round(landCaptured * config.buildingCapturePct * g.buildingCaptureMult);
+      // Captured acres arrive fully built: the buildings on that land come off
+      // the defender and go *to the attacker* (capped at what they actually
+      // had), rather than being razed to rubble.
+      const capturedBuildings = Math.min(
+        Math.round(landCaptured * config.buildingCapturePct * g.buildingCaptureMult),
+        builtAcres(defender),
+      );
       const r = razeBuildings(defender.buildings, capturedBuildings);
       nextDefBuildings = r.buildings;
-      buildingsRazed = r.razed; // "razed" here = removed from defender (attacker keeps as empty land)
+      buildingsRazed = r.razed; // here: acres of buildings that changed hands
+      capturedBuildingBundle = {} as Buildings;
+      for (const k of BUILDING_TYPES) capturedBuildingBundle[k] = defender.buildings[k] - r.buildings[k];
     } else if (attackType === "guerilla") {
       populationKilled = Math.floor(defender.population * config.populationKillPct);
       bushelsLooted = Math.floor(defender.bushels * config.bushelLootPct);
@@ -192,8 +204,12 @@ export function resolveCombat(
       buildingsRazed = r.razed;
     }
   } else {
+    // Repelled: the attacker gets mauled at the wall; the defenders that held
+    // it take no meaningful casualties. (Previously they lost 5% of their
+    // whole army on *any* repel — so a hopeless suicide poke still chipped a
+    // turret stack. That's fixed: a bounced attack costs the defender nothing.)
     attackerLosses = losses(sent, config.repelledLossPct, attackType);
-    defenderLosses = losses(defAvail, config.winnerUnitLossPct, attackType);
+    defenderLosses = ZERO_LOSS;
   }
 
   const attackerMilitary = subtract(attacker.military, attackerLosses);
@@ -218,23 +234,46 @@ export function resolveCombat(
   // since `attackerMilitary` is never reduced below the sent group's
   // survivors, and no brigade is created for them.
 
+  let attackerBuildings = attacker.buildings;
+  if (capturedBuildingBundle) {
+    const bundle = capturedBuildingBundle;
+    attackerBuildings = { ...attacker.buildings };
+    for (const k of BUILDING_TYPES) attackerBuildings[k] += bundle[k];
+  }
+
   const nextAttacker: Nation = {
     ...attacker,
-    oil: Math.max(0, attacker.oil - oilSpent),
+    oil: Math.max(0, attacker.oil - oilSpent) + oilLooted,
     land: attacker.land + landCaptured,
     cash: attacker.cash + cashLooted,
     bushels: attacker.bushels + bushelsLooted,
+    buildings: attackerBuildings,
     military: attackerMilitary,
     brigades,
   };
+
+  // Every attack — won or repelled — pulls a slice of the defender's military
+  // off the wall for a while (see config.defenseSuppression*).
+  const sp = config.defenseSuppressionPct;
+  const suppression: SuppressedForce = {
+    troops: Math.floor(defender.military.troops * sp),
+    jets: Math.floor(defender.military.jets * sp),
+    turrets: Math.floor(defender.military.turrets * sp),
+    tanks: Math.floor(defender.military.tanks * sp),
+    spies: Math.floor(defender.military.spies * sp),
+    turnsLeft: config.defenseSuppressionTurns,
+  };
+
   const nextDefender: Nation = {
     ...defender,
     land: Math.max(0, defender.land - landCaptured),
     cash: Math.max(0, defender.cash - cashLooted),
     bushels: Math.max(0, defender.bushels - bushelsLooted),
+    oil: Math.max(0, defender.oil - oilLooted),
     population: Math.max(50, defender.population - populationKilled),
     buildings: nextDefBuildings,
     military: subtract(defender.military, defenderLosses),
+    defenseSuppression: [...(defender.defenseSuppression ?? []), suppression],
   };
   if (techLooted > 0) {
     nextAttacker.tech = { ...attacker.tech, militaryStrategy: attacker.tech.militaryStrategy + techLooted };
@@ -258,8 +297,8 @@ export function resolveCombat(
   if (won) {
     if (isLandGrab) {
       log.push(
-        `${attacker.name} ${label[attackType]} ${defender.name}: captured ${landCaptured} acres, ` +
-          `$${cashLooted.toLocaleString()}, ${bushelsLooted.toLocaleString()} bushels.`,
+        `${attacker.name} ${label[attackType]} ${defender.name}: seized ${landCaptured} acres ` +
+          `(${buildingsRazed} built), $${cashLooted.toLocaleString()}, ${bushelsLooted.toLocaleString()} bushels, ${oilLooted.toLocaleString()} oil.`,
       );
     } else if (attackType === "guerilla") {
       log.push(`${attacker.name} raided ${defender.name}: ${populationKilled.toLocaleString()} killed, ${bushelsLooted.toLocaleString()} bushels lost.`);
@@ -285,6 +324,7 @@ export function resolveCombat(
     landCaptured,
     cashLooted,
     bushelsLooted,
+    oilLooted,
     techLooted,
     populationKilled,
     buildingsRazed,

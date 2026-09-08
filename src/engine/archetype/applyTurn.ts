@@ -84,12 +84,13 @@ function pickAttackType(t: ArchetypeTemplate, rng: Rng): AttackType {
 
 /**
  * Season heat: a single scalar that ramps hostile intent from ×1 on day 1 to
- * ×`seasonHeatMaxMult` on the season's final day. Keeps turtling early safe (a
- * build race) while making every archetype come for you as the deadline nears.
+ * ×`maxMult` (the difficulty tier's `seasonHeatMaxMult`) on the season's final
+ * day. Keeps turtling early safe (a build race) while making every archetype
+ * come for you as the deadline nears — harder on higher tiers.
  */
-function seasonHeatMult(day: number, seasonLengthDays: number): number {
+function seasonHeatMult(day: number, seasonLengthDays: number, maxMult: number): number {
   const progress = Math.min(1, Math.max(0, day / Math.max(1, seasonLengthDays)));
-  return 1 + progress * (config.seasonHeatMaxMult - 1);
+  return 1 + progress * (maxMult - 1);
 }
 
 /** Cheapest unit this nation could buy right now — the affordability floor. */
@@ -228,7 +229,7 @@ function buildTowardMix(self: Nation, template: ArchetypeTemplate): { nation: Na
     if (emptyAcres(n) <= 0) break;
     const perAcre = costPerBuilding(n);
     const budget = n.cash * template.buildSpendFraction;
-    const acres = Math.min(buildingsPerTurn(n), emptyAcres(n), Math.floor(budget / perAcre));
+    const acres = Math.min(buildingsPerTurn(n, type), emptyAcres(n), Math.floor(budget / perAcre));
     if (acres <= 0) continue;
     const res = build(n, n.aiTurnsRemaining, { type, acres });
     if (res.ok) {
@@ -406,13 +407,14 @@ export function applyArchetypeTurn(
   let combat: CombatResult | undefined;
   let covert: CovertResult | undefined;
 
-  // Mandatory first action: adopt the real target government. Free — leaving
-  // Monarchy never costs anything. Skips the normal roll for this call — a
-  // separate call handles the tax-rate correction below, same as a player
-  // can only take one action per turn, never two bundled together.
+  // Mandatory first action: adopt the target government — this archetype's
+  // fixed one, unless the season rolled random governments (`targetGovernment`
+  // on the nation, set at generation). Skips the normal roll for this call —
+  // a separate call handles the tax-rate correction below.
+  const targetGov = self0.targetGovernment ?? template.government;
   const idealTaxRate = Math.round(clamp(taxComfortThreshold, config.taxRateMin, config.taxRateMax) * 100) / 100;
-  if (self.government === "monarchy" && template.government !== "monarchy") {
-    const res = setGovernment(self, self.aiTurnsRemaining, template.government);
+  if (self.government === "monarchy" && targetGov !== "monarchy") {
+    const res = setGovernment(self, self.aiTurnsRemaining, targetGov);
     if (res.ok) {
       self = { ...res.nation, aiTurnsRemaining: res.turnsRemaining };
       log.push(...res.log);
@@ -430,8 +432,13 @@ export function applyArchetypeTurn(
       log.push(...res.log);
     }
   } else {
-    const attacksLocked = day < attacksUnlockDay(seasonLengthDays);
-    const aggression = tier.aggressionSkew * seasonHeatMult(day, seasonLengthDays);
+    const attacksLocked = day < attacksUnlockDay(seasonLengthDays, tier.attackUnlockFraction);
+    // "Sleeper" hold: even after combat unlocks, some archetypes stay quiet
+    // through the opening stretch of the season and pour those turns into
+    // economy + army instead (see `attackHoldUntilFraction`). Covert/defense
+    // unaffected.
+    const attackHeldEarly = day < seasonLengthDays * template.attackHoldUntilFraction;
+    const aggression = seasonHeatMult(day, seasonLengthDays, tier.seasonHeatMaxMult);
     const candidates = [input.player, ...input.enemies].filter((n) => n.id !== selfId && !n.defeated);
     // Attack-only: drop anyone this nation can't realistically beat right now
     // (see `attackViable`). Spying still considers the full candidate list —
@@ -443,6 +450,7 @@ export function applyArchetypeTurn(
     const weights = { ...template.decisionTable };
     if (
       attacksLocked ||
+      attackHeldEarly ||
       attackCandidates.length === 0 ||
       battleUnits(self.military) <= 0 ||
       self.oil <= 0 ||
@@ -485,6 +493,14 @@ export function applyArchetypeTurn(
     ) {
       weights.explore = 0;
     }
+    // Land-hoard brake: mostly-empty nation that can still afford to build →
+    // strongly favour filling it in over spending more turns attacking. Empty
+    // acres are worth 10 net worth; built acres 30, plus the income they
+    // generate. Only fires if buildEconomy survived its own affordability
+    // check above (a broke nation still falls through to cashing a turn).
+    if (weights.buildEconomy > 0 && emptyAcres(self) >= self.land * config.exploreMaxEmptyLandFraction) {
+      weights.buildEconomy = Math.max(weights.buildEconomy, config.emptyLandBuildWeight);
+    }
     weights.attackPlayer *= aggression;
     weights.covertPlayer *= aggression;
 
@@ -520,7 +536,7 @@ export function applyArchetypeTurn(
       }
     } else {
       const effectiveTemplate = { ...template, decisionTable: weights };
-      const action = decideAction(effectiveTemplate, 1, rng); // aggression already folded in above
+      const action = decideAction(effectiveTemplate, rng); // season heat already folded into weights above
 
       if (action === "explore") {
         const res = explore(self, self.aiTurnsRemaining, seasonLengthDays);
@@ -583,8 +599,12 @@ export function applyArchetypeTurn(
   // Economy tick last, exactly once, using whatever revenueMult the decision
   // above resolved to (1 normally, boosted if "cash" was chosen) — matches
   // the player: choosing an action and ticking the economy are the same
-  // event, not two separate steps.
-  const eco = applyEconomyTick(self, revenueMult, rng, seasonLengthDays, taxComfortThreshold);
+  // event, not two separate steps. Scaled by turns actually spent this call
+  // (a 2-turn attack ticks 2×), so the AI's daily economy tracks its spent
+  // turns exactly, same as the player's. End-Day catch-up drains any
+  // leftover, so every turn gets credited over the day.
+  const turnsSpent = Math.max(1, self0.aiTurnsRemaining - self.aiTurnsRemaining);
+  const eco = applyEconomyTick(self, revenueMult, rng, seasonLengthDays, taxComfortThreshold, turnsSpent);
   self = { ...eco.nation, ticksAlive: self0.ticksAlive + 1 };
   log.push(...eco.log);
 

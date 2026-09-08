@@ -57,7 +57,13 @@ modifiers — attack turn cost, build rate, per-capita income, food/oil
 output, military strength, spy effectiveness, max population, market
 commission. See `src/engine/government.ts`.
 *Current:* Raider→Tyranny (1 turn/attack), Economic→Democracy, Turtle→
-Theocracy, Balanced→Democracy.
+Theocracy, Balanced→Democracy. These are load-bearing balance, not flavour —
+sim sweeps show Tyranny is how the Raider *pays* for its aggression and
+Theocracy is most of the Turtle's small-roster strength. A season can be
+started with **`governmentMode: "random"`** (SetupScreen → "Opponent
+governments") which rolls a random government per opponent instead; that
+tends to hand the crown to whoever's aggressive and lucks into a good
+government (Raider), so it's a variant, not a more-balanced default.
 
 ### 2. `decisionTable` — the action dice (5-way)
 Relative weights for what it does on a normal turn:
@@ -127,12 +133,14 @@ instead of `config.x` in `applyTurn.ts`.
 
 | Knob (config name) | What it controls | Current value |
 |---|---|---|
-| **Attack target preference** (`pickAttackTarget` + `config.targeting`) | Among targets that clear `attackViable`, highest `sizeScore × winScore × grudgeBonus × futilityDrag` wins. `sizeScore` = their-land ÷ my-land (0.5–2.0): punch up, leave cripples alone. `winScore` (0.6–1.5) needs fresh intel — a scouted coin-flip scores *below* an unscouted unknown (1.0). `grudgeBonus` ≤1.5× nudge, never an override. `futilityDrag` eases off a target it keeps bouncing off. **Replaced the old "whoever I spied most recently" pecking order**, which funnelled every AI onto the same unlucky nation and farmed it out of the game. **No "hunts the player" bias** — player is just another nation. *Follow-ups parked:* weighted-random selection instead of highest-wins, and an explicit "already being swarmed" dampener. | same for all |
+| **Attack target preference** (`pickAttackTarget` + `config.targeting`) | Highest `sizeScore × grudgeBonus × futilityDrag` wins. `sizeScore` = their-land ÷ my-land (0.5–2.0): punch up at whoever's ahead, leave cripples alone. `grudgeBonus` ≤1.5× nudge. `futilityDrag` eases off a target it keeps bouncing off. **No "can I win?" term** — that (and `attackViable`'s power pre-filter) were removed: the AI swings at stronger nations and lets combat variance decide, so a runaway leader can't fall off everyone's list and grow untouched. **Replaced the old "whoever I spied most recently" pecking order.** No "hunts the player" bias. *Follow-ups parked:* weighted-random selection, and an "already being swarmed" dampener. | same for all |
 | **Covert target preference** (`pickCovertTarget`, in code) | Prefer a candidate with *no* fresh intel (spying is for unknowns) > grudge > random. Ignores size. | same for all |
-| `attackViabilityMargin` | How much stronger than the target's defense it must be before it'll commit to an attack. Lower = recklesser. | 1.15 |
-| `attackFutilityThreshold` / `attackFutilityRepelledScore` / `attackFutilityDecayPerDay` | How many repelled attacks before it gives up on a target and backs off, and how fast that memory fades. | threshold 3, +2 per loss, −2/day (≈ 2 losses → back off ≈ 1 day) |
+| `attackViabilityMargin`, `config.targeting.winScore*` | **Currently dead** — `attackViable` no longer does the power pre-filter and `pickAttackTarget` no longer has a win-confidence term. Knobs left in place; the only hard "don't attack" left is the futility threshold. | (unused) |
+| `attackFutilityThreshold` / `attackFutilityRepelledScore` / `attackFutilityDecayPerDay` | How many repelled attacks before it gives up on a target and backs off, and how fast that memory fades. This is now the *only* hard attack gate. | threshold 3, +2 per loss, −2/day (≈ 2 losses → back off ≈ 1 day) |
+| `emptyLandBuildWeight` | When empty land ≥ `exploreMaxEmptyLandFraction`, an archetype that can still afford to build has `buildEconomy` weight raised to at least this. Only bites a land-hoarder; broke nations still fall through to cashing a turn. | 9 |
+| `attackHoldUntilFraction` (per-template) | Archetype won't roll `attackPlayer` until the season is this fraction through, even after combat unlocks ("sleeper"). All four currently 0 — tested on the Raider, didn't beat plain aggression once its foundation was fixed. | 0 all |
 | **Upkeep brake tolerance** (`applyTurn.ts`, in code) | Currently a hard stop: net cash *or* net bushels below 0 → don't grow the army. Could let a Raider run a small deficit (glass cannon). | hard stop at 0 |
-| `militarySpendFraction` (per-template) | Share of cash committed per "buy military" decision. **Already per-archetype.** | Raider 0.7, others 0.5 |
+| `militarySpendFraction` (per-template) | Share of cash committed per "buy military" decision. **Per-template, but all four currently 0.5** (the Raider used to run 0.7 — it drained its own treasury; reverted when the Raider became "Balanced + aggressive table"). | 0.5 all |
 | `buildSpendFraction` (per-template) | Share of cash committed per "build economy" decision. **Already per-archetype.** | 0.5 all |
 | `archetypeExploreLandFraction` | Empty land must drop to this share of total before "explore" enters the roll (tuning preference). | 0.10 |
 | `exploreMaxEmptyLandFraction` | Hard cap: an archetype never explores at/above this empty-land share — the EE "can't explore a mostly-empty nation" rule. Binds regardless of the preference knob; a broke archetype here cashes a turn instead. | 0.50 |
@@ -192,35 +200,42 @@ and probably should stay that way.
 
 ## Raider — calibrated values
 
-Aggressive, offense-focused land-grabber. Starts from `SHARED_BASELINE` like
-everyone else; identity is entirely in the knobs below.
+**The Raider is Balanced with two changes: a more aggressive decision table,
+and the Tyranny government.** Nothing else differs — same `SHARED_BASELINE`,
+same building mix, same 25%-turret `targetMix`, same production, same spend
+fractions, same priorities.
 
-Revised after the first mixed-roster sim showed the original build (turrets
-10%, near-zero EZ/residences, buildEconomy 2) was a paper tiger — it attacked
-plenty but couldn't win a fight, couldn't replace losses, fell behind, and
-every other archetype farmed it. This version keeps the aggression but gives
-it a real economy and a defensive spine.
+How we got here: sim sweeps (4- and 12-AI, passive player, multiple seeds)
+tried every elaborate offense-shaped recipe — thin turrets, war-economy
+buildings, high `militarySpendFraction`, a "sleeper" early-attack hold — and
+the Raider lost every time, ending ~10–30% of Balanced's net worth. A control
+run then gave the Raider *Balanced's exact template* plus only the aggressive
+decision table: with Tyranny's income penalty intact it was a coin-flip at 4
+AI and a ~50% runner-up at 12 AI; with the penalty removed it **dominated**
+(~180–350% of Balanced). Softening Tyranny's PCI penalty from −25% to **−10%**
+(`government.ts`) landed the sweet spot: 12-AI median ~150% of Balanced,
+leads or ties every seed, still a clearly distinct archetype (ends with
+roughly 2× Balanced's land and army). The elaborate recipes were all
+compensating for handicaps that just needed removing.
 
 | Knob | Value | Rationale |
 |---|---|---|
-| `government` | Tyranny | Attacks cost only 1 turn. |
-| `decisionTable` | attack **4** / covert 1 / buildMilitary **5** / buildEconomy **4** / explore 3 | ~2× the attack frequency of shared, compounding with season heat + `aggressionSkew`. `buildEconomy` at 4 (above shared's 3) so it can recover from combat losses and keep pace. |
-| `attackTypeMix` | standard **0.75** / planned **0.15** / guerilla **0.05** / bombing **0.05** | Standard/Planned = the land-grab-and-loot attacks. Bombing (jets vs turrets, captures nothing) all but dropped. Only used before it has intel on a target. |
-| `production` | troops 25 / jets 25 / turrets **15** / tanks 20 / spies **15** | Offense-forward, but enough turret output to hold a spine. Spies kept at 15 so it still scouts. |
-| `targetMix` | troops **32** / jets **32** / turrets **18** / tanks **18** | ~64% offense, but turrets are a real floor now — its army rebuilds a wall instead of letting attrition take it to nothing. |
-| `buyPriority` | troops, jets, tanks, turrets | Turrets last (deficit-first still buys them when they're behind). |
-| `buildingMix` | indComplexes **22** / oilRigs **15** / sites **15** / EZ **14** / milBases **12** / farms **12** / residences **10** / labs **0** | Industrial complexes still the army engine + military bases for the upkeep brake, but a genuine income base (EZ + residences) so it grows land/income instead of stalling and getting farmed. Labs 0. |
-| `buildPriority` | oilRigs, farms, indComplexes, milBases, sites, EZ, residences, labs | Oil first — a Raider that hits 0 oil literally can't attack — then farms (food brake), then the engine. |
-| `militarySpendFraction` | **0.7** | Goes big when it buys (vs. 0.5 default). |
-| `buildSpendFraction` | 0.5 | Same as default. |
+| `government` | Tyranny | 1 turn per attack, +20% attack gains, −10% upkeep, and now only −10% PCI (was −25% — see `government.ts`). |
+| `decisionTable` | attack **4** / covert 1 / buildMilitary **5** / buildEconomy **4** / explore 3 | The whole identity. ~2× shared's attack weight, compounding with season heat + `aggressionSkew`; `buildEconomy` at 4 (vs shared's 3) so it fills conquered land and keeps compounding. |
+| everything else | **= Balanced (`SHARED_*`)** | `attackTypeMix`, `production`, `targetMix` (25% turrets), `buyPriority`, `buildingMix`, `buildPriority`, `militarySpendFraction` 0.5, `buildSpendFraction` 0.5, `attackHoldUntilFraction` 0. |
 
 **Known consequences (watch in playtest):**
-- **Still offense-forward, now durable** — the goal is a sustained aggressor,
-  not a glass cannon. If it should instead "blitz early and burn out",
-  revert `buildEconomy` to 2 and the economy `buildingMix`, and bump
-  `attackPlayer` to 5-6 (a different archetype — a Blitzer).
-- **No "hunts you" bias** — by design it targets the player no more than any
-  other nation. Its attack-viability filter drops targets it can't beat,
-  which (with soft raiders around) tends to make raiders fight each other.
-- **High tiers late-season** — attack 4 × `aggressionSkew` (up to 2.1) ×
-  season heat (2.4) ≈ 20+ effective weight; it may attack nearly every turn.
+- **It out-conquers and out-grows Balanced.** Aggression compounds *for* it
+  once the foundation is solid: win fights → take land + loot → build it out
+  (it has Balanced's build rate) → bigger economy → bigger army. In the sims
+  it ends with ~2× Balanced's land and military.
+- **Tyranny −10% is a global change.** A human who picks Tyranny gets it too
+  (intended — at −25% nobody would).
+- **No "hunts you" bias** — targets the player no more than any other nation
+  (`pickAttackTarget` scores by size × grudge × futility, no player term).
+- **4-AI is high variance** — a four-nation game swings on who breaks first;
+  the Raider wins most seeds but occasionally gets wiped. 12-AI is the
+  stable signal.
+- **`attackHoldUntilFraction`** stays on `ArchetypeTemplate` as an available
+  knob but every archetype is at 0 (no hold) — the "sleeper" idea didn't
+  beat plain aggression once the foundation was fixed.

@@ -112,6 +112,8 @@ export interface EconomyRates {
   upkeep: number;
   /** grossCash − upkeep. */
   cash: number;
+  bushelsProduced: number;
+  bushelsConsumed: number;
   bushelsNet: number;
   oilNet: number;
   tech: number;
@@ -155,6 +157,8 @@ export function projectRates(
     grossCash,
     upkeep,
     cash: grossCash - upkeep,
+    bushelsProduced,
+    bushelsConsumed,
     bushelsNet: bushelsProduced - bushelsConsumed,
     oilNet: oilProduced,
     tech,
@@ -203,10 +207,34 @@ export interface EconomyTick {
   log: string[];
 }
 
+/** One turn's worth of change, for the per-turn event-log breakdown. */
+export interface TurnEconomy {
+  grossCash: number;
+  upkeep: number;
+  cashNet: number;
+  bushelsProduced: number;
+  bushelsConsumed: number;
+  bushelsNet: number;
+  popGain: number;
+}
+
+const signed = (v: number, prefix = ""): string =>
+  v >= 0 ? `+${prefix}${v.toLocaleString()}` : `−${prefix}${(-v).toLocaleString()}`;
+
+/** Compact one-line turn summary for the event log (small window). */
+export function formatTurnEconomy(te: TurnEconomy): string {
+  return `↳ ${signed(te.cashNet, "$")} · ${signed(te.bushelsNet)} bu · ${signed(te.popGain)} pop`;
+}
+
 /**
  * @param revenueMult      1.0 normally, `config.cashTurnBonus` on a "Cash" turn
  * @param rng              consumed only for the missile-production coin flip
  * @param seasonLengthDays scales every rate — see `projectRates`
+ * @param turns            how many turns' worth of economy this tick represents.
+ *                         The tick loops turn-by-turn (population growth feeds
+ *                         next turn's income, etc.). `0` is a genuine no-op.
+ * @param logPerTurn       push one compact `+$… · +… bu · +… pop` line per turn
+ *                         (the player's own actions; the AI stays silent).
  */
 export function applyEconomyTick(
   n: Nation,
@@ -214,44 +242,81 @@ export function applyEconomyTick(
   rng: () => number = Math.random,
   seasonLengthDays: number = config.pacingBaselineSeasonDays,
   taxComfortThreshold: number = config.taxComfortThresholdDefault,
-): EconomyTick {
+  turns = 1,
+  logPerTurn = false,
+): EconomyTick & { perTurn: TurnEconomy[] } {
   const log: string[] = [];
+  const perTurn: TurnEconomy[] = [];
+  const t = Math.max(0, turns);
   const pace = seasonPacingMult(seasonLengthDays);
-  const rates = projectRates(n, revenueMult, seasonLengthDays, taxComfortThreshold);
 
-  let military = addMil(n.military, distribute(Math.max(0, rates.unitsProduced), n.production));
-  let cash = n.cash + rates.cash;
+  let military = n.military;
+  let cash = n.cash;
   let population = n.population;
-  let bushels = n.bushels + rates.bushelsNet;
+  let bushels = n.bushels;
+  let oil = n.oil;
+  let tech = { ...n.tech };
+  let starvedThisTick = false;
+  let brokeThisTick = false;
 
-  // Cash crisis — desertion, then clamp to 0.
-  if (cash < 0) {
-    cash = 0;
-    population *= 1 - config.cashCrisisUnitLossPct;
-    military = scaleMil(military, 1 - config.cashCrisisUnitLossPct);
-    log.push(`${n.name}: TREASURY EMPTY — troops are deserting for lack of pay.`);
+  for (let i = 0; i < t; i++) {
+    const working: Nation = { ...n, military, cash, population, bushels, oil, tech };
+    const r = projectRates(working, revenueMult, seasonLengthDays, taxComfortThreshold);
+
+    military = addMil(military, distribute(Math.max(0, r.unitsProduced), n.production));
+    cash += r.cash;
+    bushels += r.bushelsNet;
+    oil = Math.max(0, oil + r.oilNet);
+    tech = { ...tech, [n.researchFocus]: tech[n.researchFocus] + r.tech };
+
+    if (cash < 0) {
+      cash = 0;
+      population *= 1 - config.cashCrisisUnitLossPct;
+      military = scaleMil(military, 1 - config.cashCrisisUnitLossPct);
+      brokeThisTick = true;
+    }
+    if (bushels < 0) {
+      bushels = 0;
+      population *= 1 - config.starvationPopLossPct;
+      military = scaleMil(military, 1 - config.starvationUnitLossPct);
+      starvedThisTick = true;
+    }
+
+    // One turn of population convergence toward capacity.
+    const capacity = popCapacity(working);
+    const taxUnhappy = Math.max(0, (n.taxRate - taxComfortThreshold) * config.taxUnhappySlope);
+    const happiness = clamp(1 - taxUnhappy, 0.1, 1.2);
+    const fedFactor = bushels > 0 ? 1 : 0.3;
+    const stepRate = config.popGrowthRate * happiness * fedFactor * pace;
+    const before = population;
+    population = Math.max(50, population + (capacity - population) * stepRate);
+
+    if (logPerTurn) {
+      const te: TurnEconomy = {
+        grossCash: Math.round(r.grossCash),
+        upkeep: Math.round(r.upkeep),
+        cashNet: Math.round(r.cash),
+        bushelsProduced: Math.round(r.bushelsProduced),
+        bushelsConsumed: Math.round(r.bushelsConsumed),
+        bushelsNet: Math.round(r.bushelsNet),
+        popGain: Math.round(population - before),
+      };
+      perTurn.push(te);
+      log.push(formatTurnEconomy(te));
+    }
   }
 
-  // Starvation — desertion, then clamp bushels to 0.
-  if (bushels < 0) {
-    bushels = 0;
-    population *= 1 - config.starvationPopLossPct;
-    military = scaleMil(military, 1 - config.starvationUnitLossPct);
-    log.push(`${n.name}: STARVATION — bushels ran out; citizens and troops are dying.`);
-  }
+  if (brokeThisTick) log.push(`${n.name}: TREASURY EMPTY — troops are deserting for lack of pay.`);
+  if (starvedThisTick) log.push(`${n.name}: STARVATION — bushels ran out; citizens and troops are dying.`);
 
-  const oil = Math.max(0, n.oil + rates.oilNet);
+  const missiles = produceMissiles(n, rng, pace * t);
 
-  // Population growth toward capacity.
-  const capacity = popCapacity(n);
-  const taxUnhappy = Math.max(0, (n.taxRate - taxComfortThreshold) * config.taxUnhappySlope);
-  const happiness = clamp(1 - taxUnhappy, 0.1, 1.2);
-  const fedFactor = bushels > 0 ? 1 : 0.3;
-  const growth = (capacity - population) * config.popGrowthRate * happiness * fedFactor * pace;
-  population = Math.max(50, population + growth);
-
-  const tech = { ...n.tech, [n.researchFocus]: n.tech[n.researchFocus] + rates.tech };
-  const missiles = produceMissiles(n, rng, pace);
+  // Recent-attack defense suppression counts down by turns spent, same cadence
+  // as everything else here; finished entries drop off and those units rejoin
+  // the wall (they were never removed from `military`).
+  const defenseSuppression = (n.defenseSuppression ?? [])
+    .map((f) => ({ ...f, turnsLeft: f.turnsLeft - t }))
+    .filter((f) => f.turnsLeft > 0);
 
   const nation: Nation = {
     ...n,
@@ -262,6 +327,7 @@ export function applyEconomyTick(
     military,
     missiles,
     tech,
+    defenseSuppression,
   };
-  return { nation, log };
+  return { nation, log, perTurn };
 }

@@ -117,6 +117,18 @@ export interface Brigade {
   turnsLeft: number;
 }
 
+/** A slice of a nation's military pulled off the wall each time it's attacked
+ * — can't help attack or defend for `turnsLeft` more turns. Stacks per attack;
+ * see `config.defenseSuppression*` and `brigades.ts`. */
+export interface SuppressedForce {
+  troops: number;
+  jets: number;
+  turrets: number;
+  tanks: number;
+  spies: number;
+  turnsLeft: number;
+}
+
 /** Units the Industrial Complexes turn out, as a percentage mix (sums to ~100). */
 export type ProductionMix = Record<keyof Military, number>;
 
@@ -156,6 +168,10 @@ export interface Nation {
   researchFocus: TechCategory;
 
   government: GovernmentId;
+  /** AI only: the government this nation will adopt on turn 1 (set at season
+   * generation — the archetype's fixed choice, or a random one). Omitted for
+   * the player; falls back to the archetype default if absent. */
+  targetGovernment?: GovernmentId;
   /** 0..0.70 — fraction of per-capita income taken as tax. */
   taxRate: number;
 
@@ -163,6 +179,12 @@ export interface Nation {
    * defense until `turnsLeft` counts down to 0. Still counted in `military`
    * (still fed, still paid, still part of net worth); see `brigades.ts`. */
   brigades: Brigade[];
+
+  /** Forces pulled off the wall by recent attacks — one entry per attack
+   * suffered, each `config.defenseSuppressionPct` of the military at the time,
+   * expiring after `config.defenseSuppressionTurns`. Like `brigades`, they
+   * stay in `military` but `availableMilitary` subtracts them out. */
+  defenseSuppression: SuppressedForce[];
 
   /** AI nations' own daily turn budget — refilled to `turnPoolCap` once a
    * day, spent action by action exactly like the player's `turnsRemaining`.
@@ -201,12 +223,17 @@ export interface Nation {
 export interface DifficultyTier {
   id: string;
   label: string;
-  /** Multiplies every archetype growth-curve output. */
-  growthMultiplier: number;
-  /** Scales archetype starting baselines at season generation. */
-  baselineMult: number;
-  /** Multiplies the `attackPlayer` weight before the decision roll. */
-  aggressionSkew: number;
+  /** Share of the season that must pass before *anyone* can attack. The AI
+   * always uses this; the player uses `min(this, config.noAttackDaysFraction)`
+   * — so easier-than-Veteran tiers hold the AI back longer while the player
+   * keeps the standard window, and harder tiers pull both forward. */
+  attackUnlockFraction: number;
+  /** Peak of the season-heat ramp (hostile decision weights climb ×1 on day 1
+   * to ×this on the final day). Higher tiers ramp harder. */
+  seasonHeatMaxMult: number;
+  /** Added to `config.turnPoolCap` for AI nations' daily turn budget (the
+   * player's is always the base). Negative on easy tiers, positive on hard. */
+  aiTurnPoolDelta: number;
 }
 
 export interface SeasonConfig {
@@ -217,6 +244,10 @@ export interface SeasonConfig {
   seasonLengthDays: number;
   /** The player's starting government. */
   playerGovernment: GovernmentId;
+  /** How AI nations pick their government: `"archetype"` (each archetype's
+   * calibrated fixed choice — the default) or `"random"` (a seeded random
+   * government per nation, ignoring the archetype). */
+  governmentMode?: "archetype" | "random";
   seed: number;
 }
 
@@ -296,9 +327,12 @@ export interface CombatResult {
   landCaptured: number;
   cashLooted: number;
   bushelsLooted: number;
+  /** Barrels of oil seized from the defender on a won land-grab. */
+  oilLooted: number;
   techLooted: number;
   populationKilled: number;
-  /** Acres of buildings destroyed (bombing / artillery). */
+  /** Acres of buildings that changed hands: seized by the attacker on a won
+   * land-grab, or destroyed on a bombing / artillery hit. */
   buildingsRazed: number;
   oilSpent: number;
   attackerLosses: UnitLosses;

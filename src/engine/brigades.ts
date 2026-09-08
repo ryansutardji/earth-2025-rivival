@@ -19,17 +19,33 @@ export function restingMilitary(n: Nation): { troops: number; jets: number; tank
   );
 }
 
+/** Total of every unit type currently pulled off the wall by recent attacks
+ * (see `Nation.defenseSuppression`). */
+export function suppressedMilitary(n: Nation): Military {
+  return (n.defenseSuppression ?? []).reduce(
+    (s, f) => ({
+      troops: s.troops + f.troops,
+      jets: s.jets + f.jets,
+      turrets: s.turrets + f.turrets,
+      tanks: s.tanks + f.tanks,
+      spies: s.spies + f.spies,
+    }),
+    { troops: 0, jets: 0, turrets: 0, tanks: 0, spies: 0 },
+  );
+}
+
 /** Military actually usable right now — for sending on a new attack, or for
- * defending against one. Total minus whatever's resting in a brigade. Turrets
- * and spies never deploy on an attack, so they're always fully available. */
+ * defending against one. Total minus whatever's resting in a brigade minus
+ * whatever recent attacks have knocked off the wall (`defenseSuppression`). */
 export function availableMilitary(n: Nation): Military {
   const resting = restingMilitary(n);
+  const sup = suppressedMilitary(n);
   return {
-    troops: Math.max(0, n.military.troops - resting.troops),
-    jets: Math.max(0, n.military.jets - resting.jets),
-    turrets: n.military.turrets,
-    tanks: Math.max(0, n.military.tanks - resting.tanks),
-    spies: n.military.spies,
+    troops: Math.max(0, n.military.troops - resting.troops - sup.troops),
+    jets: Math.max(0, n.military.jets - resting.jets - sup.jets),
+    turrets: Math.max(0, n.military.turrets - sup.turrets),
+    tanks: Math.max(0, n.military.tanks - resting.tanks - sup.tanks),
+    spies: Math.max(0, n.military.spies - sup.spies),
   };
 }
 

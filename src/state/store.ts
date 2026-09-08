@@ -28,6 +28,7 @@ function defaultSetup(): SeasonConfig {
     eligibleArchetypes: [...DEFAULT_ELIGIBLE_ARCHETYPES],
     seasonLengthDays: config.seasonLengthDays,
     playerGovernment: DEFAULT_GOVERNMENT,
+    governmentMode: "archetype",
     seed: randomSeed(),
   };
 }
@@ -90,6 +91,7 @@ export const useGame = create<GameStore>((set, get) => ({
         eligibleArchetypes: pool,
         seasonLengthDays: clampSeason(SEASON_MIN + Math.floor(r() * (SEASON_MAX - SEASON_MIN + 1))),
         playerGovernment: GOVERNMENT_IDS[Math.floor(r() * GOVERNMENT_IDS.length)]!,
+        governmentMode: r() < 0.5 ? "random" : "archetype",
         seed: randomSeed(),
       },
     });

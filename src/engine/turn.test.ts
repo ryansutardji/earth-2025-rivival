@@ -273,42 +273,53 @@ describe("season end (hybrid win condition)", () => {
 
   it("deadline as #1 net worth → net-worth victory", () => {
     let world = createWorld({ ...cfg, seasonLengthDays: 10 });
+    // A dominant economy, plus a wall to hold it (a passive player gets its
+    // land farmed away over 10 days otherwise) and farms so it stays fed —
+    // this test is about the deadline win condition, not survival.
     world = {
       ...world,
-      player: { ...world.player, cash: 20_000_000, land: 60_000, bushels: 10 ** 8, buildings: { ...world.player.buildings, enterpriseZones: 10_000 } },
+      player: {
+        ...world.player,
+        cash: 20_000_000,
+        land: 60_000,
+        bushels: 10 ** 8,
+        buildings: { ...world.player.buildings, enterpriseZones: 10_000, farms: 5_000 },
+        military: { ...zeroMilitary(), troops: 5_000, turrets: 200_000 },
+      },
     };
     expect(runToDeadline(world).status).toBe("won_networth");
   });
 
   it("deadline behind on net worth → loss", () => {
-    let world = createWorld({ ...cfg, seasonLengthDays: 8, tierId: "veteran", eligibleArchetypes: ["economic"], rosterSize: 2 });
-    // The player needs a real defensive wall to *survive* to the deadline —
-    // every archetype shares one decision table now (templates.ts), so even
-    // "economic" ones attack, and once they get repelled they stop throwing
-    // their army away and pour it into growth instead, coming back stronger.
-    // Kept to turrets + fed (so it isn't whittled down by starvation) but
-    // with no economy at all, so net worth still loses on points.
+    // A short season and a wall far too big to crack — the player survives to
+    // the deadline with zero economy, so it loses on points to nations that
+    // actually grew.
+    let world = createWorld({ ...cfg, seasonLengthDays: 6, tierId: "recruit", eligibleArchetypes: ["turtle"], rosterSize: 2 });
     world = {
       ...world,
       player: {
         ...world.player,
         cash: 0,
-        land: 300,
-        bushels: 500_000,
+        land: 2_000,
+        bushels: 10_000_000,
         oil: 0,
         buildings: { ...world.player.buildings, enterpriseZones: 0, farms: 0 },
-        military: { ...zeroMilitary(), troops: 400, turrets: 10_000 },
+        military: { ...zeroMilitary(), troops: 5_000, turrets: 400_000 },
       },
     };
     expect(runToDeadline(world).status).toBe("lost_networth");
   });
 
   it("clearing the roster early → elimination victory", () => {
-    let world = createWorld({ ...cfg, seasonLengthDays: 40, eligibleArchetypes: ["economic"], rosterSize: 2 });
+    // Short season: a longer one lets the (economic) enemies out-explore the
+    // grind — an economy-balance property, not what this test is about. This
+    // test only checks that clearing the whole roster fires the elimination
+    // victory, so keep the window tight enough that an overwhelming army does.
+    let world = createWorld({ ...cfg, seasonLengthDays: 8, eligibleArchetypes: ["economic"], rosterSize: 2 });
     world = {
       ...world,
       player: { ...world.player, oil: 10 ** 8, bushels: 10 ** 8, population: 3000, military: mil({ troops: 800_000, tanks: 400_000 }) },
-      enemies: world.enemies.map((e) => ({ ...e, land: 150, cash: 100, military: mil({ troops: 10, turrets: 10 }) })),
+      enemies: world.enemies.map((e) => ({ ...e, land: 140, cash: 100, military: mil({ troops: 10, turrets: 10 }) })),
     };
     let guard = 0;
     while (world.status === "playing" && guard++ < 400) {

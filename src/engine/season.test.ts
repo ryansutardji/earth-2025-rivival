@@ -45,11 +45,14 @@ describe("generateSeason", () => {
     expect(a.map((n) => n.name)).not.toEqual(b.map((n) => n.name));
   });
 
-  it("scales baselines by the tier multiplier", () => {
-    const easy = generateSeason({ ...baseCfg, rosterSize: 2 }, getTier("recruit"));
-    const hard = generateSeason({ ...baseCfg, rosterSize: 2 }, getTier("warlord"));
-    expect(hard[0]!.land).toBeGreaterThan(easy[0]!.land);
-    expect(hard[0]!.military.troops).toBeGreaterThan(easy[0]!.military.troops);
+  it("starts every tier at the same shared baseline (difficulty is tempo, not a head start)", () => {
+    const easy = generateSeason({ ...baseCfg, rosterSize: 2 }, getTier("militia"));
+    const hard = generateSeason({ ...baseCfg, rosterSize: 2 }, getTier("apex"));
+    expect(hard[0]!.land).toBe(easy[0]!.land);
+    expect(hard[0]!.military.troops).toBe(easy[0]!.military.troops);
+    expect(hard[0]!.cash).toBe(easy[0]!.cash);
+    // ...but the harder tier's AI gets a bigger daily turn budget.
+    expect(hard[0]!.aiTurnsRemaining).toBeGreaterThan(easy[0]!.aiTurnsRemaining);
   });
 
   it("gives every enemy a distinct name and id", () => {

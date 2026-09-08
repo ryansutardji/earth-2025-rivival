@@ -22,11 +22,13 @@ export function EventLog({ log }: { log: string[] }) {
             className={
               line.startsWith("—")
                 ? "mt-1 text-neutral-500"
-                : /eliminated|won|overran|looted/i.test(line)
-                  ? "text-emerald-300"
-                  : /repelled|assault|massing/i.test(line)
-                    ? "text-rose-300"
-                    : "text-neutral-300"
+                : line.startsWith("↳")
+                  ? "pl-3 text-[11px] text-neutral-500 tabular-nums"
+                  : /eliminated|won|overran|looted|seized/i.test(line)
+                    ? "text-emerald-300"
+                    : /repelled|assault|massing|EMPTY|STARVATION/i.test(line)
+                      ? "text-rose-300"
+                      : "text-neutral-300"
             }
           >
             {line}

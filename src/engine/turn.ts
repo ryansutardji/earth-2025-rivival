@@ -23,7 +23,7 @@ import { resolveMissile } from "./missile";
 import { gov } from "./government";
 import { applyArchetypeTurn } from "./archetype/applyTurn";
 import { computeStandings } from "./networth";
-import { attacksUnlockDay } from "./pacing";
+import { attacksUnlockDay, aiTurnPool } from "./pacing";
 import { availableMilitary, tickBrigades } from "./brigades";
 import { addGrudge, decayDaily } from "./grudges";
 import { getTier } from "../data/difficultyTiers";
@@ -72,7 +72,7 @@ export interface TurnOutcome {
   missileReport?: MissileResult;
 }
 
-const MAX_LOG = 200;
+const MAX_LOG = 500;
 
 function pushLog(world: WorldState, lines: string[]): void {
   if (lines.length === 0) return;
@@ -86,10 +86,16 @@ function advanceWorldTick(
   rng: Rng,
   revenueMult: number,
   turnsSpent: number,
+  economyTurns: number,
+  logPerTurn: boolean,
 ): { combat?: CombatResult; covert?: CovertResult } {
   const tier = getTier(world.config.tierId);
   world.market = tickMarket(world.market, rng);
-  const eco = applyEconomyTick(world.player, revenueMult, rng, world.seasonLengthDays, world.taxComfortThreshold);
+  // Economy accrues per turn, not per action: an action that spent 4 turns
+  // ticks 4×. On End Day the leftover (unspent) turns are credited here, so a
+  // full day always ticks a full day's worth whether played out or idled.
+  // `logPerTurn` breaks a multi-turn action's economy into one line per turn.
+  const eco = applyEconomyTick(world.player, revenueMult, rng, world.seasonLengthDays, world.taxComfortThreshold, economyTurns, logPerTurn);
   world.player = eco.nation;
   pushLog(world, eco.log);
 
@@ -226,9 +232,14 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
     return { idx, target };
   };
 
-  // The pre-first-strike build-up window (shared by attacks and missiles).
+  // The pre-first-strike build-up window (shared by attacks and missiles). The
+  // player's window is the tier's `attackUnlockFraction` capped at the
+  // Veteran anchor — so easy tiers hold the AI back longer but never delay the
+  // player past day-7-equivalent; hard tiers pull the player's window in too.
   const attackWindowClosed = (): TurnOutcome | null => {
-    const unlockDay = attacksUnlockDay(world.seasonLengthDays);
+    const tier = getTier(world.config.tierId);
+    const fraction = Math.min(tier.attackUnlockFraction, config.noAttackDaysFraction);
+    const unlockDay = attacksUnlockDay(world.seasonLengthDays, fraction);
     return world.day < unlockDay
       ? reject(prev, `No attacking until day ${unlockDay} — build up your forces first.`)
       : null;
@@ -383,14 +394,19 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
       world.turnsRemaining = config.turnPoolCap;
       world.day += 1;
       world.player = decayDaily(world.player);
-      world.enemies = world.enemies.map((e) => (e.defeated ? e : { ...decayDaily(e), aiTurnsRemaining: config.turnPoolCap }));
+      const aiPool = aiTurnPool(getTier(world.config.tierId));
+      world.enemies = world.enemies.map((e) => (e.defeated ? e : { ...decayDaily(e), aiTurnsRemaining: aiPool }));
       if (world.day <= world.seasonLengthDays) pushLog(world, [`— Day ${world.day} —`]);
       break;
     }
   }
 
   const turnsSpent = action.kind === "endDay" ? 0 : Math.max(0, turnsBefore - world.turnsRemaining);
-  const incoming = advanceWorldTick(world, rng.next, revenueMult, turnsSpent);
+  // End Day credits the day's unspent turns to the economy (see advanceWorldTick)
+  // as a single lump — the per-turn breakdown is only for the player's own
+  // actions, where they spent the turns on purpose.
+  const economyTurns = action.kind === "endDay" ? turnsBefore : turnsSpent;
+  const incoming = advanceWorldTick(world, rng.next, revenueMult, turnsSpent, economyTurns, action.kind !== "endDay");
   world.rngState = rng.getState();
   resolveSeasonEnd(world);
 

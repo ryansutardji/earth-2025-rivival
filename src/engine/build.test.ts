@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { build, demolish, buildingsPerTurn, costPerBuilding } from "./build";
+import { build, demolish, buildingsPerTurn, buildTurnCost, costPerBuilding } from "./build";
 import { explore, exploreYield } from "./explore";
 import { buyMilitary, privateBuyPrice } from "./military";
 import { config } from "./config";
@@ -9,13 +9,26 @@ import { emptyAcres } from "./economy";
 describe("build action", () => {
   const rich = () => makeNation({ land: 1000, buildings: { enterpriseZones: 100 }, cash: 5_000_000 });
 
-  it("converts empty acres, capped by buildings-per-turn, charging land-scaled cost", () => {
+  it("one build order spends ceil(acres / rate) turns — turns are a pool", () => {
     const n = rich();
-    const bpt = buildingsPerTurn(n);
-    const r = build(n, 5, { type: "industrialComplexes", acres: 999 });
+    const rate = buildingsPerTurn(n, "industrialComplexes");
+    // Ask for exactly 3 turns' worth: should place 3×rate and spend 3 turns.
+    const r = build(n, 10, { type: "industrialComplexes", acres: rate * 3 });
     expect(r.ok).toBe(true);
-    expect(r.nation.buildings.industrialComplexes).toBe(bpt); // clamped to BPT
-    expect(r.nation.cash).toBe(5_000_000 - bpt * costPerBuilding(n));
+    expect(r.nation.buildings.industrialComplexes).toBe(rate * 3);
+    expect(r.turnsRemaining).toBe(10 - 3);
+    expect(r.nation.cash).toBe(5_000_000 - rate * 3 * costPerBuilding(n));
+  });
+
+  it("a build order is clamped to the turns you have, not always 1", () => {
+    const n = rich();
+    const rate = buildingsPerTurn(n, "industrialComplexes");
+    // Ask for far more than 4 turns' worth, with only 4 turns available.
+    const r = build(n, 4, { type: "industrialComplexes", acres: 100_000 });
+    expect(r.ok).toBe(true);
+    expect(r.nation.buildings.industrialComplexes).toBe(rate * 4); // all 4 turns spent
+    expect(r.turnsRemaining).toBe(0);
+    expect(buildTurnCost(n, "industrialComplexes", rate * 4)).toBe(4);
   });
 
   it("Construction Sites raise BPT; Dictatorship lowers it", () => {
@@ -25,6 +38,20 @@ describe("build action", () => {
     expect(buildingsPerTurn(makeNation({ government: "dictatorship" }))).toBeLessThan(
       buildingsPerTurn(makeNation({ government: "monarchy" })),
     );
+  });
+
+  it("Construction Sites themselves build at exactly 1/turn, ignoring BPT and government", () => {
+    const n = makeNation({ land: 2000, buildings: { constructionSites: 60 }, government: "theocracy", cash: 5_000_000 });
+    expect(buildingsPerTurn(n)).toBeGreaterThan(1); // BPT for other buildings is high
+    expect(buildingsPerTurn(n, "constructionSites")).toBe(1);
+    // 1 turn → 1 site (not BPT-many), even under Theocracy's +40% build rate.
+    const one = build(n, 1, { type: "constructionSites", acres: 999 });
+    expect(one.nation.buildings.constructionSites).toBe(61);
+    expect(one.turnsRemaining).toBe(0);
+    // 5 turns → 5 sites (still 1/turn — turns are a pool).
+    const five = build(n, 5, { type: "constructionSites", acres: 999 });
+    expect(five.nation.buildings.constructionSites).toBe(65);
+    expect(five.turnsRemaining).toBe(0);
   });
 
   it("cost per building scales with total land", () => {

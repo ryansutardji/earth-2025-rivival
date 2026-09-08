@@ -1,13 +1,13 @@
 # Earth 2025 Revival — Open Items
 
 Everything known to be unfinished, feeling wrong, or worth adding. The game is
-fully playable and tested (175 automated tests; 174 pass — one, "a Turtle
-roster is eventually crackable", is deliberately red: a stale assumption from
-before the AI got smarter, to be revisited once the archetypes are fully
-tuned). It closely matches the real Earth Empires game it's based on —
-buildings, the 8 governments, tech, attack types, spy operations, missiles,
-the economy, land exploration. There's no in-game bank anymore (the real game
-doesn't have one either, so it was removed).
+fully playable and tested (179 automated tests, all passing). It draws heavily
+on the real Earth Empires game — buildings, the 8 governments, tech, attack
+types, spy operations, missiles, the economy, land exploration — with some
+deliberate divergences for single-player balance: economy accrues per turn (a
+5-turn build ticks 5×), captured land arrives fully built, a won attack seizes
+oil, and being attacked benches 15% of the defender's military for 50 turns.
+No in-game bank (the real game dropped it too).
 
 Legend: **P0** = would bug a first-time player · **P1** = should get done
 before calling this finished · **P2** = nice-to-have polish. Effort:
@@ -25,41 +25,12 @@ pace scales with however many days the season actually runs, and — with the
 §2 AI rewrite — enemies now spend real cash on real economy the same way the
 player does, so their growth is naturally bounded instead of front-loaded.
 Exact end-of-season numbers haven't been re-measured since the archetype
-calibration and the unified starting baseline (see §2), so this section's job
-now is mostly the difficulty ladder below. All tunable numbers live in
-`src/engine/config.ts`.
-
-### Difficulty levels
-
-**Unblocked** — §2's AI rewrite has landed (archetypes now run the real
-economy instead of a growth-curve abstraction), so the ladder can be built on
-top of the settled decision-making logic. One thing changed underneath,
-though: **`growthMultiplier` is now dead** — there's no growth ceiling for it
-to scale (see §2), nothing in the engine reads it, and `SetupScreen.tsx`
-still *displays* it ("growth ×N") which is now misleading. The ladder below
-needs a real replacement for that column before it's implemented — likely
-something that scales the per-archetype `militarySpendFraction` /
-`buildSpendFraction` or the affordability bar itself, not a growth curve.
-`baselineMult` and `aggressionSkew` are unaffected and still mean exactly
-what they did.
-
-- [ ] **P0 · M — Expand from 3 to 10 difficulty levels.** Ladder approved,
-  numbers below still hold for `baselineMult`/`aggressionSkew` — the
-  `growthMultiplier` column needs a new definition first (see above). Pure
-  data (`data/difficultyTiers.ts`) once it's time:
-
-  | # | Label | id | growthMultiplier | baselineMult | aggressionSkew |
-  |---|---|---|---|---|---|
-  | 1 | I — Militia | `militia` | 0.55 | 0.60 | 0.45 |
-  | 2 | II — Recruit | `recruit` | 0.70 | 0.75 | 0.60 |
-  | 3 | III — Regular | `regular` | 0.80 | 0.83 | 0.75 |
-  | 4 | IV — Seasoned | `seasoned` | 0.90 | 0.91 | 0.87 |
-  | 5 | V — Veteran | `veteran` | 1.00 | 1.00 | 1.00 |
-  | 6 | VI — Hardened | `hardened` | 1.15 | 1.12 | 1.20 |
-  | 7 | VII — Elite | `elite` | 1.28 | 1.24 | 1.40 |
-  | 8 | VIII — Warlord | `warlord` | 1.40 | 1.35 | 1.60 |
-  | 9 | IX — Conqueror | `conqueror` | 1.60 | 1.50 | 1.80 |
-  | 10 | X — Apex | `apex` | 1.85 | 1.70 | 2.10 |
+calibration, the unified starting baseline (see §2), and the per-turn economy
+switch — that last one inflated final net worth roughly 5–10× (everyone now
+gets a full day's economy per action-day instead of one tick), so the
+`playthrough.test.ts` ceilings and any "feels right" targets need a fresh
+look. This section's job now is that re-measure plus the difficulty ladder
+below. All tunable numbers live in `src/engine/config.ts`.
 
 ### The marketplace & spying
 - [ ] **P1 · S — Democracy's "zero market commission" perk doesn't actually
@@ -106,13 +77,26 @@ spy) gated by genuine affordability — not a made-up growth curve. This
 section is the open list of what's still rough about *how they decide* what
 to do with that. All of it lives in `src/engine/archetype/`.
 
-- [ ] **P1 · M — Economic and Turtle still behave identically to Balanced.**
-  **Raider is now calibrated** (its own decision weights, recipes, priority
-  lists, and spend fraction — see `docs/archetype-calibration.md`). Economic
-  and Turtle still run the shared `SHARED_*` constants. Balanced stays the
-  reference. All four (and the player) now share one starting `baseline`.
-  Sketches for the remaining two are in the calibration doc; do them the
-  same knob-by-knob way.
+- [ ] **P2 · S — All four archetypes are calibrated; confirm by playtest.**
+  Each is Balanced's shared recipe (`SHARED_*` building mix, production,
+  spend fractions, priorities, one `baseline`) plus a distinct decision table
+  and government — nothing bespoke:
+  - **Raider** — aggressive weights (attack 4 vs 2) + Tyranny (its −25% PCI
+    softened to −10% in `government.ts`).
+  - **Economic** — economy-heavy weights + Democracy.
+  - **Turtle** — turret-heavy `targetMix` + defensive weights + a token
+    attack 1 (so it can shove back) + Theocracy.
+  - **Balanced** — the shared table + Democracy.
+
+  Sim sweeps land the **12-AI game roughly even** across all four; the
+  **4-AI game still favours the Turtle** (a quiet small roster rewards
+  never-lose-anything play — accepted for now). A `governmentMode: "random"`
+  season lever (SetupScreen) gives a reshuffled variant. See
+  `docs/archetype-calibration.md`.
+  *Rests on:* the removed "can I win?" attack brake (`attackViable` now only
+  checks the futility streak) and the combat reward package (full building
+  capture, oil loot, post-attack defense suppression) — if any of those
+  change, re-run the sweeps.
 - [ ] **P2 · L — The public market has no real economy behind it, and the AI
   doesn't touch it at all.** Its stock is synthetic auto-restock (refills
   toward its cap on *every* action, not once a day — the "never runs low"
@@ -138,9 +122,11 @@ to do with that. All of it lives in `src/engine/archetype/`.
   (same mechanism as the mandatory government / tax-rate first actions).
 - [ ] **P2 · S — Targeting anti-snowball: two follow-ups if the pack still
   clumps.** `pickAttackTarget` now ranks targets by
-  `sizeScore × winScore × grudgeBonus × futilityDrag` (highest wins) instead
-  of "whoever I spied most recently" — see `config.targeting` and the
-  calibration doc. If sims still show every AI converging on one nation:
+  `sizeScore × grudgeBonus × futilityDrag` (highest wins) instead of
+  "whoever I spied most recently" — see `config.targeting` and the
+  calibration doc. (The old `winScore` term and `attackViable`'s power
+  pre-filter were both removed — only the futility streak still hard-drops a
+  target.) If sims still show every AI converging on one nation:
   (a) switch from highest-wins to weighted-random over the score, and
   (b) add an explicit `recentlyAttacked` decay counter on `Nation` (same
   pattern as grudges / `attackFutility`) so a nation already being swarmed
@@ -149,14 +135,6 @@ to do with that. All of it lives in `src/engine/archetype/`.
   fresh intel, the single-unit-type exploit attacks (Bombing/Artillery/
   Guerilla) size their force to comfortably clear the target's real defense;
   a Standard strike still just sends everything available, blind.
-- [ ] **P2 · S — Higher tiers could pre-reveal the player to enemies.**
-  Hard-tier enemies could start already scouted on you (free intel from turn
-  1) instead of needing to spy you first — a difficulty-flavored version of
-  the intel/target-selection system.
-- [ ] **P2 · S — The mix of enemy personality types is always evenly spread
-  _(opinion)_.** Right now enemy nations rotate evenly through the available
-  personality types. Could weight it by difficulty (harder levels lean more
-  aggressive) or offer themed seasons like "all defensive" or "all raiders."
 
 ---
 
@@ -174,9 +152,9 @@ to do with that. All of it lives in `src/engine/archetype/`.
   distinct thing — needing its own tech and oil, hitting buildings and
   population, and specifically countered by anti-missile tech and turrets.
 - [ ] **P2 · S — Updating the game can silently wipe someone's save file.**
-  Whenever the save format changes, the old save is just discarded instead of
-  being converted to the new format. Should add a proper upgrade path so
-  people don't lose in-progress games when the game updates.
+  Whenever `SCHEMA_VERSION` changes (now at 11), the old save is just
+  discarded instead of migrated. Should add a proper upgrade path so people
+  don't lose in-progress games on update.
 - [ ] **P2 · S — No history of past seasons.** There's no meta-progression by
   design, but a simple read-only log of past seasons played (difficulty,
   length, result, final score) would be a nice touch and doesn't break that
@@ -204,7 +182,8 @@ to do with that. All of it lives in `src/engine/archetype/`.
   screen.
 - [ ] **P1 · S — The event log is just one long unfiltered scrolling
   list.** Should add filter options (combat / spying / economy / world
-  events) and/or group entries by day so it's easier to scan.
+  events) and/or group entries by day so it's easier to scan — more pressing
+  now that a multi-turn action logs one per-turn economy line per turn spent.
 - [ ] **P2 · S — Two pop-up result screens can appear stacked on top of each
   other.** If you attack someone and an enemy spy-hits you back on the same
   turn, both result pop-ups can overlap awkwardly. Should queue them one at a
@@ -258,7 +237,7 @@ to do with that. All of it lives in `src/engine/archetype/`.
 
 ---
 
-## 7. Open design questions (need a decision from you, not more coding)
+## 6. Open design questions (need a decision from you, not more coding)
 
 - [ ] **Is winning by total elimination vs. winning by final score both
   meant to stay?** Both ways to win currently work, but because the economy

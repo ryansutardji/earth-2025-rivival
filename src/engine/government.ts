@@ -104,8 +104,13 @@ export const GOVERNMENTS: Record<GovernmentId, GovernmentEffects> = {
   tyranny: {
     id: "tyranny",
     label: "Tyranny",
-    blurb: "1 turn per attack, +20% attack gains, −10% upkeep; −25% per-capita income.",
-    ...base({ attackGainsMult: 1.2, militaryCostMult: 0.9, pciMult: 0.75, turnsToAttack: 1 }),
+    blurb: "1 turn per attack, +20% attack gains, −10% upkeep; −10% per-capita income.",
+    // Wiki has this at −25% PCI, but at that rate the 1-turn-attack upside
+    // never justified the cost — nobody would pick it. −10% makes it a real
+    // "fast, cheap war machine" option (and lets the Raider archetype run on
+    // it without the economy handicap swamping its aggression). See
+    // docs/archetype-calibration.md.
+    ...base({ attackGainsMult: 1.2, militaryCostMult: 0.9, pciMult: 0.9, turnsToAttack: 1 }),
   },
   fascism: {
     id: "fascism",

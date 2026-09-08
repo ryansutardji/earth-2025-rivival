@@ -8,6 +8,7 @@ import { zeroTech } from "./tech";
 import type {
   Brigade,
   Buildings,
+  SuppressedForce,
   EnemyIntel,
   GovernmentId,
   Grudge,
@@ -52,11 +53,13 @@ export interface NationOverrides {
   tech?: Partial<TechLevels>;
   researchFocus?: TechCategory;
   government?: GovernmentId;
+  targetGovernment?: GovernmentId;
   taxRate?: number;
   archetype?: Nation["archetype"];
   ticksAlive?: number;
   defeated?: boolean;
   brigades?: Brigade[];
+  defenseSuppression?: SuppressedForce[];
   aiTurnsRemaining?: number;
   intel?: Record<string, EnemyIntel>;
   grudges?: Record<string, Grudge>;
@@ -82,10 +85,12 @@ export function makeNation(o: NationOverrides = {}): Nation {
     tech: { ...zeroTech(), ...o.tech },
     researchFocus: o.researchFocus ?? "business",
     government: o.government ?? DEFAULT_GOVERNMENT,
+    ...(o.targetGovernment ? { targetGovernment: o.targetGovernment } : {}),
     taxRate: o.taxRate ?? 0.25,
     ticksAlive: o.ticksAlive ?? 0,
     defeated: o.defeated ?? false,
     brigades: o.brigades ?? [],
+    defenseSuppression: o.defenseSuppression ?? [],
     aiTurnsRemaining: o.aiTurnsRemaining ?? config.turnPoolCap,
     intel: o.intel ?? {},
     grudges: o.grudges ?? {},

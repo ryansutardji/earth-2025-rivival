@@ -10,33 +10,13 @@ import type { Rng } from "../types";
 import { ARCHETYPE_ACTIONS, type ArchetypeAction, type ArchetypeTemplate } from "./templates";
 
 /**
- * Effective weights for this roll: the base table with the hostile actions
- * (`attackPlayer`, `covertPlayer`) scaled by the active tier's aggression skew.
+ * Weighted-random pick over the template's decision table. A zero (or
+ * negative) weight is never selected. Falls back to the last positive-weight
+ * action if float rounding overshoots. (Season-heat scaling of the hostile
+ * weights is applied by the caller in `applyTurn.ts` before this runs.)
  */
-export function effectiveWeights(
-  template: ArchetypeTemplate,
-  aggressionSkew: number,
-): Record<ArchetypeAction, number> {
-  const base = template.decisionTable;
-  return {
-    attackPlayer: base.attackPlayer * aggressionSkew,
-    covertPlayer: base.covertPlayer * aggressionSkew,
-    buildMilitary: base.buildMilitary,
-    buildEconomy: base.buildEconomy,
-    explore: base.explore,
-  };
-}
-
-/**
- * Weighted-random pick. A zero (or negative) weight is never selected. Falls
- * back to the last positive-weight action if float rounding overshoots.
- */
-export function decideAction(
-  template: ArchetypeTemplate,
-  aggressionSkew: number,
-  rng: Rng,
-): ArchetypeAction {
-  const weights = effectiveWeights(template, aggressionSkew);
+export function decideAction(template: ArchetypeTemplate, rng: Rng): ArchetypeAction {
+  const weights = template.decisionTable;
   const total = ARCHETYPE_ACTIONS.reduce((sum, a) => sum + Math.max(0, weights[a]), 0);
 
   // Degenerate table (every weight 0) — do the harmless thing.

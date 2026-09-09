@@ -3,9 +3,7 @@ import { useGame } from "../state/store";
 import { config } from "../engine/config";
 import { TECH_CATEGORIES, UNIT_TYPES } from "../engine/types";
 import type { Buildings, Nation, ProductionMix, TechCategory } from "../engine/types";
-import type { UnitType } from "../engine/military";
 import { buildingsPerTurn, buildTurnCost, costPerBuilding } from "../engine/build";
-import { privateBuyPrice } from "../engine/military";
 import { exploreYield } from "../engine/explore";
 import { gov } from "../engine/government";
 import { GOVERNMENT_IDS, GOVERNMENTS } from "../engine/government";
@@ -23,8 +21,6 @@ export function ActionBar({ player, disabled, seasonLengthDays }: { player: Nati
 
   const [buildType, setBuildType] = useState<keyof Buildings>("enterpriseZones");
   const [buildAcres, setBuildAcres] = useState(20);
-  const [unitType, setUnitType] = useState<Exclude<UnitType, "spies">>("jets");
-  const [unitQty, setUnitQty] = useState(50);
   const [taxPct, setTaxPct] = useState(Math.round(player.taxRate * 100));
   const [focus, setFocus] = useState<TechCategory>(player.researchFocus);
   const [govId, setGovId] = useState(player.government);
@@ -67,19 +63,6 @@ export function ActionBar({ player, disabled, seasonLengthDays }: { player: Nati
         <button className={btn} disabled={disabled} onClick={() => act({ kind: "cash" })}>
           Cash (+{Math.round((config.cashTurnBonus - 1) * 100)}% revenue · 1t)
         </button>
-      </div>
-
-      {/* Private market */}
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={rowLabel}>Private mkt</span>
-        <select value={unitType} onChange={(e) => setUnitType(e.target.value as Exclude<UnitType, "spies">)} className={sel}>
-          {UNIT_TYPES.filter((u) => u !== "spies").map((u) => (
-            <option key={u} value={u}>{u}</option>
-          ))}
-        </select>
-        <input type="number" min={1} max={config.maxBuyPerAction} value={unitQty} onChange={(e) => setUnitQty(Number(e.target.value))} className={numInput} />
-        <span className="text-xs text-neutral-600">{money(unitQty * privateBuyPrice(player, unitType))} · 1t</span>
-        <button className={btn} disabled={disabled} onClick={() => act({ kind: "buyMilitary", unitType, qty: unitQty })}>Buy</button>
       </div>
 
       {/* Production mix */}

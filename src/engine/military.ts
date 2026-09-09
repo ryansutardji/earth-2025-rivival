@@ -1,7 +1,11 @@
 /**
- * The private-market "buy units" player action: instant, cash only, at the wiki
- * base prices, discounted by Military tech + Military Bases + government.
- * Spies cannot be bought — only Industrial Complexes make them.
+ * The private market — the only market in the game. Instant, cash only, one
+ * turn per purchase regardless of quantity, no selling.
+ *
+ *  - Units (`buyMilitary`): wiki base prices, discounted by Military tech +
+ *    Military Bases + government. Spies cannot be bought — only Industrial
+ *    Complexes make them.
+ *  - Bushels / oil (`buyResource`): flat `config.resourceCost` price.
  */
 
 import { config } from "./config";
@@ -11,6 +15,7 @@ import { militaryCostTechMult } from "./tech";
 import type { ActionResult, Military, Nation } from "./types";
 
 export type UnitType = keyof Military;
+export type ResourceGood = "bushels" | "oil";
 
 export interface BuyParams {
   type: UnitType;
@@ -52,5 +57,34 @@ export function buyMilitary(nation: Nation, turnsRemaining: number, params: BuyP
     },
     turnsRemaining: turnsRemaining - config.turnCost.buyMilitary,
     log: [`Bought ${qty.toLocaleString()} ${params.type} for $${cost.toLocaleString()}.`],
+  };
+}
+
+/** Flat private-market price for one unit of bushels / oil (no discounts). */
+export function resourceBuyPrice(good: ResourceGood): number {
+  return config.resourceCost[good];
+}
+
+export interface BuyResourceParams {
+  good: ResourceGood;
+  qty: number;
+}
+
+/** Buy bushels or oil for cash — one turn regardless of quantity, no cap. */
+export function buyResource(nation: Nation, turnsRemaining: number, params: BuyResourceParams): ActionResult {
+  const qty = Math.floor(params.qty);
+  if (qty <= 0) return { ok: false, error: "Enter a positive quantity.", nation, turnsRemaining, log: [] };
+  if (turnsRemaining < config.turnCost.buyMilitary) {
+    return { ok: false, error: "Not enough turns.", nation, turnsRemaining, log: [] };
+  }
+  const cost = qty * resourceBuyPrice(params.good);
+  if (nation.cash < cost) {
+    return { ok: false, error: `Need $${cost.toLocaleString()}.`, nation, turnsRemaining, log: [] };
+  }
+  return {
+    ok: true,
+    nation: { ...nation, cash: nation.cash - cost, [params.good]: nation[params.good] + qty },
+    turnsRemaining: turnsRemaining - config.turnCost.buyMilitary,
+    log: [`Bought ${qty.toLocaleString()} ${params.good} for $${cost.toLocaleString()}.`],
   };
 }

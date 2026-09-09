@@ -187,12 +187,12 @@ describe("applyPlayerTurn — actions", () => {
     expect(out.missileReport).toBeDefined();
   });
 
-  it("market + demolish flow through", () => {
+  it("buyResource + demolish flow through", () => {
     let w = createWorld(cfg);
-    w = { ...w, player: { ...w.player, cash: 50_000 } }; // headroom for the market buy — test is about the flow, not the economy
-    const jets0 = w.player.military.jets;
-    w = applyPlayerTurn(w, { kind: "marketBuy", good: "jets", qty: 50 }).world;
-    expect(w.player.military.jets).toBeGreaterThanOrEqual(jets0 + 50);
+    w = { ...w, player: { ...w.player, cash: 500_000 } }; // headroom — test is about the flow, not the economy
+    const bushels0 = w.player.bushels;
+    w = applyPlayerTurn(w, { kind: "buyResource", good: "bushels", qty: 5000 }).world;
+    expect(w.player.bushels).toBeGreaterThanOrEqual(bushels0 + 5000);
     const farms0 = w.player.buildings.farms;
     w = applyPlayerTurn(w, { kind: "demolish", buildingType: "farms", acres: 10 }).world;
     expect(w.player.buildings.farms).toBe(farms0 - 10);
@@ -201,8 +201,7 @@ describe("applyPlayerTurn — actions", () => {
   it("is deterministic: same world + same actions => identical state", () => {
     const actions = [
       { kind: "build" as const, buildingType: "industrialComplexes" as const, acres: 5 },
-      { kind: "marketBuy" as const, good: "bushels" as const, qty: 500 },
-      { kind: "marketSell" as const, good: "troops" as const, qty: 10 },
+      { kind: "buyResource" as const, good: "bushels" as const, qty: 500 },
       { kind: "cash" as const },
       { kind: "explore" as const },
       { kind: "endDay" as const },
@@ -219,15 +218,8 @@ describe("applyPlayerTurn — actions", () => {
     const w0 = createWorld(cfg);
     const snap = JSON.stringify(w0);
     applyPlayerTurn(w0, { kind: "endDay" });
-    applyPlayerTurn(w0, { kind: "marketBuy", good: "bushels", qty: 100 });
+    applyPlayerTurn(w0, { kind: "buyResource", good: "bushels", qty: 100 });
     expect(JSON.stringify(w0)).toBe(snap);
-  });
-
-  it("the market drifts each world tick", () => {
-    let w = createWorld(cfg);
-    const before = w.market.jets.price;
-    for (let i = 0; i < 8; i++) w = applyPlayerTurn(w, { kind: "endDay" }).world;
-    expect(w.market.jets.price).not.toBe(before);
   });
 });
 

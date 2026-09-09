@@ -1,241 +1,215 @@
-# Archetype calibration reference
+# Archetype calibration — the knobs, in plain terms
 
-Every lever available for making an AI archetype (Raider / Economic / Turtle /
-Balanced) behave distinctly. **Raider is calibrated** (see the last section);
-Economic and Turtle still run the shared `SHARED_*` constants in
-`templates.ts`, and **Balanced is the reference point** everything else is
-tuned against. All four now start from the *same* `SHARED_BASELINE` — only
-`id` / `label` / `blurb` / `government` differ in identity.
+Four AI personalities: **Raider**, **Economic**, **Turtle**, **Balanced**.
+This doc is the map of every dial you can turn to change how they behave, and
+what each one does.
 
-- **Group A** knobs are pure data — edit `src/engine/archetype/templates.ts`,
-  no code change.
-- **Group B** knobs are values that were global in `src/engine/config.ts`;
-  making one per-archetype means a small code change in
-  `src/engine/archetype/applyTurn.ts` to read it off the template instead.
-  The two spend fractions have already made this move (see below).
-- **Group C** is the fixed part of the flow that probably shouldn't vary.
+The core idea: **an archetype is not special-cased.** Every AI nation runs the
+exact same economy and takes the exact same actions the human player can
+(build, buy troops, explore, spy, attack). "Personality" is *only* about
+**what it tends to choose to do** with its turns and its cash. There is no
+hidden growth curve, no free stat boost.
 
----
-
-## The turn flow (the skeleton — identical for every archetype)
-
-Each call to `applyArchetypeTurn` (`src/engine/archetype/applyTurn.ts`):
-
-1. **Out of turns for the day?** → does nothing.
-2. **Still a Monarchy?** → spends the whole turn adopting its target
-   government (free — leaving Monarchy never has a penalty).
-3. **Tax rate not at the season's sweet spot?** → spends the whole turn
-   setting it to the real `taxComfortThreshold`.
-4. **Otherwise** → builds the list of *affordable* actions by masking out
-   anything it genuinely can't do this turn:
-   - `attackPlayer` — no valid/beatable target, no army, no oil, not enough
-     turns, or the no-attack window hasn't lifted yet
-   - `covertPlayer` — no spies, no target, not enough turns
-   - `buildMilitary` — can't afford the cheapest unit, **or** the upkeep
-     brake trips (a bigger army would push net cash *or* net bushels below
-     zero)
-   - `buildEconomy` — can't afford a building, or no empty land
-   - `explore` — empty land is still above the explore-gate threshold
-   Then it **rolls the weighted die** (`decisionTable`) among the survivors.
-5. **Nothing affordable at all?** → cashes a turn for a revenue boost
-   (or explores, if it's fully built out so cash wouldn't unblock anything).
-6. **Executes** the rolled action:
-   - **attack** → pick target → pick attack type + force size → resolve
-   - **spy** → pick target → pick covert op → resolve
-   - **buy military** → buy toward `targetMix` (most-behind type first)
-   - **build economy** → build toward `buildingMix` (most-behind type first)
-   - **explore** → claim new land
-7. **Runs the economy tick** (income, upkeep, factory output, food, etc.).
+All four start from the **identical** starting position (`SHARED_BASELINE`) —
+same land, cash, army, buildings as each other *and* as the player. They
+differ in just three things: **their government**, **their action dice**
+(`decisionTable`), and one tweak to the **Turtle's unit-buy mix**. Everything
+else is shared.
 
 ---
 
-## Group A — per-archetype data knobs (`templates.ts`, no code change)
+## Where the knobs live
 
-### 1. `government`
-The government it adopts on turn 1. Each one carries its own package of
-modifiers — attack turn cost, build rate, per-capita income, food/oil
-output, military strength, spy effectiveness, max population, market
-commission. See `src/engine/government.ts`.
-*Current:* Raider→Tyranny (1 turn/attack), Economic→Democracy, Turtle→
-Theocracy, Balanced→Democracy. These are load-bearing balance, not flavour —
-sim sweeps show Tyranny is how the Raider *pays* for its aggression and
-Theocracy is most of the Turtle's small-roster strength. A season can be
-started with **`governmentMode: "random"`** (SetupScreen → "Opponent
-governments") which rolls a random government per opponent instead; that
-tends to hand the crown to whoever's aggressive and lucks into a good
-government (Raider), so it's a variant, not a more-balanced default.
+| Group | Where | To change it |
+|---|---|---|
+| **A — per-archetype data** | `src/engine/archetype/templates.ts` | Just edit the number. No code change. |
+| **B — shared dials** | `src/engine/config.ts` | Edit the number — but it changes for *all four* archetypes at once. Splitting one out per-archetype is a small code change (add a field to `ArchetypeTemplate`, read `template.x` instead of `config.x` in `applyTurn.ts`). |
+| **C — fixed flow** | `applyTurn.ts` | The turn skeleton. Not meant to vary by archetype. |
+| **Season levers** | `src/data/difficultyTiers.ts` | Difficulty, not personality — see the bottom section. |
 
-### 2. `decisionTable` — the action dice (5-way)
-Relative weights for what it does on a normal turn:
+---
+
+## THE TABLE — every per-archetype knob, side by side
+
+Columns are archetypes. Rows are knobs. **Bold** = this archetype differs from
+the others. Edit these in `templates.ts`.
+
+| Knob | Raider | Economic | Turtle | Balanced |
+|---|---|---|---|---|
+| **Government** | **Tyranny** | **Democracy** | **Theocracy** | **Democracy** |
+| **Attack weight** (`attackPlayer`) | **4** | **1** | **1** | **2** |
+| **Spy weight** (`covertPlayer`) | 1 | 1 | 1 | 1 |
+| **Build-army weight** (`buildMilitary`) | **5** | **3** | **5** | **4** |
+| **Build-economy weight** (`buildEconomy`) | 4 | **6** | 4 | 4 |
+| **Explore weight** (`explore`) | 3 | 3 | **2** | 3 |
+| Sleeper hold (`attackHoldUntilFraction`) | 0 | 0 | 0 | 0 |
+| Cash spent per army-buy (`militarySpendFraction`) | 0.5 | 0.5 | 0.5 | 0.5 |
+| Cash spent per economy-build (`buildSpendFraction`) | 0.5 | 0.5 | 0.5 | 0.5 |
+| **Unit-buy target mix** — troops / jets / turrets / tanks (`targetMix`) | 25 / 25 / 25 / 25 | 25 / 25 / 25 / 25 | **20 / 10 / 55 / 15** | 25 / 25 / 25 / 25 |
+| Factory output mix — troops / jets / turrets / tanks / spies (`production`) | 20 / 20 / 20 / 20 / 20 | 20 / 20 / 20 / 20 / 20 | 20 / 20 / 20 / 20 / 20 | 20 / 20 / 20 / 20 / 20 |
+| Attack-type mix, no-intel case (`attackTypeMix`) | std .70 / guer .20 / bomb .10 | same | same | same |
+| Building target mix (`buildingMix`) | sites 30, other 7 at 10 each | same | same | same |
+| Buy priority (tie-break) (`buyPriority`) | troops → jets → turrets → tanks | same | same | same |
+| Build priority (tie-break) (`buildPriority`) | farms → oil → EZ → residences → industry → labs → mil-bases → sites | same | same | same |
+| Starting position (`baseline`) | `SHARED_BASELINE` | same | same | same |
+
+**One-line identity of each:**
+- **Raider** — attacks ~2× as often as anyone, on the fast-cheap-war
+  government. Wins fights, takes land + loot, builds it out, snowballs.
+- **Economic** — barely fights, pours turns into buildings. Fat and soft.
+- **Turtle** — pours turns into military, and the buy-mix turns 55% of it
+  into turrets (a wall). Attacks only to shove back. Hard to kill, low ceiling.
+- **Balanced** — the reference point. Mild lean toward nothing. Every other
+  archetype is tuned *against* this one.
+
+---
+
+## What each knob actually does
+
+### Government
+The government adopted on turn 1 (free — every nation starts as a Monarchy,
+which is free to leave). Each government is a bundle of modifiers: attack turn
+cost, build speed, per-person income, food/oil output, army strength, upkeep
+cost, spy strength, population cap, market fees. Full list in
+`src/engine/government.ts`.
+
+These are **load-bearing balance, not flavour.** Sim sweeps show Tyranny is
+*how the Raider pays* for its aggression (fast cheap attacks, small income
+hit) and Theocracy is most of the Turtle's durability (cheap army, +40% build
+speed, +50% population). Change a government and you've changed that
+archetype's whole power level.
+
+> **Season lever:** SetupScreen → "Opponent governments" → **Random** rolls a
+> random government per opponent instead of these fixed picks. Same roster and
+> names for a given seed, just different governments. It tends to crown
+> whoever's aggressive and rolls a good government (usually the Raider), so
+> it's a shake-it-up variant, not a more-balanced default.
+
+### The action dice (`decisionTable`)
+Five relative weights. Every normal turn, the AI rolls this weighted die to
+pick what to do. Bigger number = picked more often. A weight of 0 disables
+that action entirely.
 
 | Action | What it does |
 |---|---|
-| `attackPlayer` | Launch an attack. **Also multiplied by "season heat"** (ramps ×1 → ×`seasonHeatMaxMult` over the season) **and difficulty `aggressionSkew`.** |
-| `covertPlayer` | Run a spy op. Same season-heat / aggression multiplier. |
-| `buildMilitary` | Buy units toward `targetMix`. |
-| `buildEconomy` | Build structures toward `buildingMix`. |
-| `explore` | Claim land. Only in the roll when empty land ≤ `archetypeExploreLandFraction` of total. |
+| `attackPlayer` | Launch one attack. **This weight is also multiplied by "season heat"** — see the bottom section. |
+| `covertPlayer` | Run one spy op. Also multiplied by season heat. |
+| `buildMilitary` | Buy units toward the unit-buy mix. |
+| `buildEconomy` | Build structures toward the building mix. |
+| `explore` | Claim new land. Only in the roll when empty land is low (see `archetypeExploreLandFraction`). |
 
-*Shared (Balanced / Economic / Turtle):* attack 2 / covert 1 / buildMilitary 6
-/ buildEconomy 3 / explore 3. *(There used to be a 6th, `reinforceDefense` —
-a pure duplicate of `buildMilitary` — removed; its weight folded in.)*
+The weights are relative, so `attack 4 / build-army 5 / build-eco 4 / explore 3
+/ spy 1` means attack is picked 4 times out of 17 rolls (before season heat).
 
-### 3. `attackTypeMix` — attack-type preference (5-way, no-intel case only)
-Weighted pick of Standard / Planned / Guerilla / Bombing / Artillery, used
-**only when it has no fresh spy intel on the target.** With fresh intel it
-ignores this and picks the type that exploits the target's weakest stat
-(weak turrets → Bombing, weak tanks → Artillery, weak troops → Guerilla,
-no clear weak spot → Standard).
-*Current shared:* standard 0.7 / guerilla 0.2 / bombing 0.1.
+### Sleeper hold (`attackHoldUntilFraction`)
+"Stay peaceful for the first X% of the season even after combat is legal, and
+spend those turns building instead." 0 = attack as soon as it's allowed. All
+four are at 0 — we tried a sleeper Raider and plain aggression beat it once
+its economy foundation was fixed. The knob is still there if you want it.
 
-### 4. `production` — factory output mix (5-way, passive)
-How industrial complexes split their per-tick unit output across troops /
-jets / turrets / tanks / **spies**. This runs every economy tick regardless
-of what the archetype decides — it's the *only* source of spies (they can't
-be bought). Independent from `targetMix`.
-*Current shared:* 20 / 20 / 20 / 20 / 20.
+### Cash spent per decision (`militarySpendFraction`, `buildSpendFraction`)
+When "build army" fires, it's allowed to spend this fraction of its current
+cash on that one decision. Same for "build economy". At 0.5 it commits half
+its treasury per buy. Higher = faster army/economy but a thinner cash buffer
+(the Raider ran 0.7 once and kept bankrupting itself — reverted to 0.5).
 
-### 5. `targetMix` — unit purchase target (4-way) + `buyPriority` + `militarySpendFraction`
-When "buy military" fires, it buys toward this composition across troops /
-jets / turrets / tanks (**no spies** — can't buy them), spending
-`militarySpendFraction` of cash (per-template), buying whichever type is
-furthest under its target share first. `buyPriority` is the tie-break order
-once the mix is balanced.
-*Shared:* mix 25 / 25 / 25 / 25; priority troops, jets, turrets, tanks;
-`militarySpendFraction` 0.5.
+### Unit-buy target mix (`targetMix`)
+When "build army" fires, it buys toward this troops/jets/turrets/tanks split,
+always topping up whichever type is furthest below its target share first.
+**This is the Turtle's one bespoke knob** — 55% turrets makes its army a
+defensive wall. Spies are not here (they can't be bought — see next knob).
 
-### 6. `buildingMix` — building target (8-way) + `buildPriority` + `buildSpendFraction`
-When "build economy" fires, it builds toward this across enterprise zones /
-residences / industrial complexes / military bases / research labs / farms /
-oil rigs / construction sites, spending `buildSpendFraction` of cash
-(per-template), most-behind type first. `buildPriority` is the tie-break
-order.
-*Shared:* construction sites 30, all others 10 each; priority farms, oil
-rigs, EZ, residences, industrial complexes, labs, military bases, sites;
-`buildSpendFraction` 0.5.
+### Factory output mix (`production`)
+How the factories split their automatic per-tick output across all five unit
+types **including spies**. This runs every economy tick no matter what the AI
+chose to do. It's the *only* source of spies. Currently even (20 each) for
+everyone. A spy-heavy archetype would raise the spy share here.
 
-### 7. `baseline` — starting stats
-Land, cash, army composition, buildings at spawn. **Now identical across all
-four archetypes *and* the human player** (`SHARED_BASELINE` in `templates.ts`,
-also used by `makePlayerNation`): land 900, cash 8000, `{ troops 180,
-turrets 180, jets 80, tanks 20 }`, `{ EZ 30, residences 22, indComplexes 22,
-farms 16, oilRigs 10, labs 8, milBases 4, sites 4 }`. The AI roster is scaled
-up from there at season generation by `tier.baselineMult`; the player is
-never scaled.
+### Attack-type mix (`attackTypeMix`)
+Which attack type it picks **only when it has no fresh spy intel on the
+target**. With fresh intel it ignores this and picks the type that hits the
+target's weakest stat (weak turrets → Bombing, weak tanks → Artillery, weak
+troops → Guerilla, nothing obviously weak → Standard land-grab). So this knob
+only shapes *blind* / early aggression.
+
+### Building target mix + priorities (`buildingMix`, `buildPriority`, `buyPriority`)
+`buildingMix` is the target split across the 8 building types (currently
+front-loads construction sites, which raise build speed for everything after).
+The two `*Priority` lists are only tie-breakers — used once the mix is already
+balanced. All shared right now.
+
+### Starting position (`baseline`)
+Land, cash, army, buildings at spawn. **Identical for all four and the
+player** — `SHARED_BASELINE` in `templates.ts`: land 900, cash 8,000, army
+{ troops 180, turrets 180, jets 80, tanks 20 }, buildings { EZ 30, residences
+22, industry 22, farms 16, oil 10, labs 8, mil-bases 4, sites 4 }. Difficulty
+does **not** scale this any more — every tier starts the AI at exactly the
+player's size.
 
 ---
 
-## Group B — currently global, could be made per-archetype (small code change)
+## Shared dials (`config.ts`) — same for all four archetypes
 
-All live in `src/engine/config.ts`. To split one per-archetype: add a field
-to `ArchetypeTemplate`, set it on each template, and read `template.x`
-instead of `config.x` in `applyTurn.ts`.
+These affect every AI equally. Edit to shift overall AI behaviour; split one
+out per-archetype (small code change) if you want it to be a personality knob.
 
-| Knob (config name) | What it controls | Current value |
+| Dial (`config.` name) | Plain meaning | Value |
 |---|---|---|
-| **Attack target preference** (`pickAttackTarget` + `config.targeting`) | Highest `sizeScore × grudgeBonus × futilityDrag` wins. `sizeScore` = their-land ÷ my-land (0.5–2.0): punch up at whoever's ahead, leave cripples alone. `grudgeBonus` ≤1.5× nudge. `futilityDrag` eases off a target it keeps bouncing off. **No "can I win?" term** — that (and `attackViable`'s power pre-filter) were removed: the AI swings at stronger nations and lets combat variance decide, so a runaway leader can't fall off everyone's list and grow untouched. **Replaced the old "whoever I spied most recently" pecking order.** No "hunts the player" bias. *Follow-ups parked:* weighted-random selection, and an "already being swarmed" dampener. | same for all |
-| **Covert target preference** (`pickCovertTarget`, in code) | Prefer a candidate with *no* fresh intel (spying is for unknowns) > grudge > random. Ignores size. | same for all |
-| `attackViabilityMargin`, `config.targeting.winScore*` | **Currently dead** — `attackViable` no longer does the power pre-filter and `pickAttackTarget` no longer has a win-confidence term. Knobs left in place; the only hard "don't attack" left is the futility threshold. | (unused) |
-| `attackFutilityThreshold` / `attackFutilityRepelledScore` / `attackFutilityDecayPerDay` | How many repelled attacks before it gives up on a target and backs off, and how fast that memory fades. This is now the *only* hard attack gate. | threshold 3, +2 per loss, −2/day (≈ 2 losses → back off ≈ 1 day) |
-| `emptyLandBuildWeight` | When empty land ≥ `exploreMaxEmptyLandFraction`, an archetype that can still afford to build has `buildEconomy` weight raised to at least this. Only bites a land-hoarder; broke nations still fall through to cashing a turn. | 9 |
-| `attackHoldUntilFraction` (per-template) | Archetype won't roll `attackPlayer` until the season is this fraction through, even after combat unlocks ("sleeper"). All four currently 0 — tested on the Raider, didn't beat plain aggression once its foundation was fixed. | 0 all |
-| **Upkeep brake tolerance** (`applyTurn.ts`, in code) | Currently a hard stop: net cash *or* net bushels below 0 → don't grow the army. Could let a Raider run a small deficit (glass cannon). | hard stop at 0 |
-| `militarySpendFraction` (per-template) | Share of cash committed per "buy military" decision. **Per-template, but all four currently 0.5** (the Raider used to run 0.7 — it drained its own treasury; reverted when the Raider became "Balanced + aggressive table"). | 0.5 all |
-| `buildSpendFraction` (per-template) | Share of cash committed per "build economy" decision. **Already per-archetype.** | 0.5 all |
-| `archetypeExploreLandFraction` | Empty land must drop to this share of total before "explore" enters the roll (tuning preference). | 0.10 |
-| `exploreMaxEmptyLandFraction` | Hard cap: an archetype never explores at/above this empty-land share — the EE "can't explore a mostly-empty nation" rule. Binds regardless of the preference knob; a broke archetype here cashes a turn instead. | 0.50 |
-| `attackForceMargin` | With intel, how far it overshoots the target's known defense (vs. blind full-send). | 1.30 |
-| `seasonHeatMaxMult` | How much `attackPlayer` / `covertPlayer` weights ramp up from day 1 to the deadline. | 2.4 (×1 → ×2.4) |
-| **Covert op choice** (`pickCovertOp`, in code) | No intel → scout (`spy`); has intel → random harmful op. Could flavor it — Turtle: counter-intel only; Raider: only ops that soften a target for an attack. | same for all |
-| `archetypeMaxPurchasesPerAction` | Cap on how many separate buy/build calls one decision roll can make (so one roll can't eat the whole day). | 4 |
+| `targeting.sizeRatioMin` / `sizeRatioMax` | Target-picking: how much bigger/smaller a nation can look before the "juiciness" score stops moving. A nation twice your size caps at 2.0; a cripple floors at 0.5. | 0.5 / 2.0 |
+| `targeting.grudgeWeight` / `grudgeSaturation` | How much a grudge bumps a target up the list (max +50%), and how many grudge points count as "maxed" (~2 attacks' worth). | 0.5 / 6 |
+| `targeting.futilityDrag` / `futilityDragFloor` | How hard repeated failed attacks push the AI *off* a target before it drops it entirely. Floor 0.34 = a much-bounced target is worth ~⅓ its size score. | 0.5 / 0.34 |
+| `targeting.winScore*` | **Currently unused.** The old "can I win this?" term in the target score was removed so a runaway leader can't fall off everyone's list and grow untouched. Knobs left in place. | (dead) |
+| `attackFutilityThreshold` | How many repelled attacks before the AI fully gives up on a target. | 3 |
+| `attackFutilityRepelledScore` | Points added per repelled attack (so ~2 losses → give up). | +2 |
+| `attackFutilityDecayPerDay` | How fast that "give up" memory fades. | −2 / day |
+| `grudgeAttackedScore` / `grudgeFailedSpyScore` | Grudge points earned when someone attacks you / gets caught spying on you. | 3 / 2 |
+| `grudgeDecayPerDay` | How fast a grudge cools off. | −10 / day |
+| `intelStalenessDays` | A spy report older than this is "stale" — the AI stops trusting it for smart attack-type / target choices. | 10 days |
+| `attackForceMargin` | With good intel, how far the AI overshoots the target's known defense instead of blindly sending everything. 1.3 = send 30% more than needed. | 1.30 |
+| `archetypeExploreLandFraction` | Empty land must drop below this share of total before "explore" enters the dice roll. Keeps AIs expanding like a player (explore → fill → explore). | 0.10 |
+| `exploreMaxEmptyLandFraction` | Hard cap: never explore when this much land is still empty ("can't explore a mostly-empty nation"). | 0.50 |
+| `emptyLandBuildWeight` | If a nation is hoarding empty land it *could* build on, its build-economy weight is forced up to at least this — a hard pull to fill land in rather than keep attacking. In practice only ever bites the Raider. | 9 |
+| `archetypeMaxPurchasesPerAction` | Cap on separate buy/build calls one dice roll can make, so one roll can't eat the whole day. | 4 |
+| `maxBuyPerAction` | Cap on units bought in a single buy call. | 500 |
+| `cashTurnBonus` | The revenue multiplier when the AI "cashes a turn" (its fallback when nothing else is affordable). | 1.2 |
+| `turnCost.*` | Turn cost per action: build 1, explore 1, cash 1, buy-army 1, spy 2, switch-government 6, non-land-grab attack 2. Land-grab attacks cost the government's `turnsToAttack` (Tyranny 1 / normal 2 / Democracy 3). | — |
 
 ---
 
-## Group C — the fixed part of the flow
+## Watch-outs when calibrating
 
-The mandatory turn-1 / turn-2 setup: adopt target government, then optimize
-tax rate to the season's `taxComfortThreshold`. Uniform for every archetype
-and probably should stay that way.
-
----
-
-## Cross-knob interactions worth knowing when calibrating
-
-- **Upkeep brake vs. aggression.** Cranking `attackPlayer` and a heavy
-  offense `targetMix` without enough economy → the brake trips → it gets
-  *forced* to build economy, which fights the archetype's identity. An
-  aggressive archetype needs either a lean/affordable army, a leaner target
-  government, or a per-archetype brake tolerance (Group B).
-- **`production` vs. `targetMix`.** These are separate. Factory output
-  (`production`) includes spies and runs passively; purchases (`targetMix`)
-  exclude spies and only happen on a "buy military" roll. A spy-heavy
-  archetype sets `production` toward spies and relies on purchases for the
-  rest of its army.
-- **Attack-type mix only matters without intel.** Once an archetype has
-  scouted a target, `attackTypeMix` is ignored in favor of exploiting the
-  known weak stat. So `attackTypeMix` shapes *early* / unscouted aggression.
-- **There's no defense-only buy action.** `reinforceDefense` was removed (it
-  was a pure duplicate of `buildMilitary`). A defensive archetype just tunes
-  its `targetMix` toward turrets — the deficit-first buy logic does the rest.
-- **Season heat compounds with difficulty.** The effective attack weight is
-  `decisionTable.attackPlayer × aggressionSkew × seasonHeat`. A high base
-  weight on a high tier late in the season gets very large.
-- **Explore only unlocks near "full."** An archetype with a low
-  `buildingMix` weight on construction sites builds slowly, stays under the
-  explore gate longer, and expands its borders less. Land feeds net worth,
-  home-defense, and building capacity.
+- **The upkeep brake fights aggression.** If you crank a nation's attack
+  weight and army spending without enough economy behind it, the "would this
+  bigger army push my cash *or* my food negative?" brake trips and *forces*
+  it to build economy instead — the opposite of what you wanted. An
+  aggressive archetype needs a cheap/lean army, a cheap government, or (small
+  code change) its own softer brake.
+- **Factory output and buy-mix are separate.** `production` (passive, includes
+  spies) vs `targetMix` (only on a buy roll, no spies). A turret archetype
+  needs turrets in *both* to get a wall up fast.
+- **Attack-type mix only matters before the AI has scouted you.** After a
+  fresh spy report it targets your weakest stat regardless.
+- **Season heat compounds.** Effective attack weight late in a hard season is
+  `attack weight × season-heat` — and season heat maxes higher on higher
+  tiers (up to ×4.2 on Apex). A high base attack weight on a high tier gets
+  very large near the deadline.
+- **Explore only unlocks near "full."** An archetype that builds slowly
+  (low construction-site weight) stays under the explore gate longer and
+  expands its borders less — less land, less net worth, less home defense.
 
 ---
 
-## Per-archetype intent sketch
+## Difficulty ≠ personality — the season levers
 
-| Archetype | Rough identity → which knobs | Status |
+Difficulty is **tempo and pressure**, never a bigger or meaner AI. Every tier
+starts the AI at the player's exact size with these same decision weights.
+Three levers, in `src/data/difficultyTiers.ts`:
+
+| Lever | Plain meaning | Range across the 10 tiers |
 |---|---|---|
-| **Raider** | See "Raider — calibrated values" below. | **Done** |
-| **Economic** | High `buildEconomy`, very low `attackPlayer`; `buildingMix` heavy on enterprise zones + residences; (Group B) high `attackViabilityMargin` so it only fights when it's sure. | Not started |
-| **Turtle** | Low `attackPlayer`; `buildMilitary` weight high with a turrets-heavy `targetMix` + `production`; `buildingMix` favors residences + military bases; (Group B) covert-op choice → counter-intel only. | Not started |
-| **Balanced** | The shared values — the reference point everything else is tuned against. Not meant to change. | Reference |
+| `attackUnlockFraction` | How far into the season before combat opens. The AI always uses its tier's value; the **player** uses `min(tier value, 0.20)` — so on easy tiers the AI is held back longer than you, on hard tiers you're both unlocked early. | 0.40 (Militia, ~day 13 of 30) → 0.20 (Veteran, ~day 7) → 0.0 (Apex, day 1) |
+| `seasonHeatMaxMult` | How hard late-game aggression ramps. Every AI's attack/spy weight climbs from ×1 on day 1 to this by the deadline. | 1.6 (Militia) → 2.4 (Veteran) → 4.2 (Apex) |
+| `aiTurnPoolDelta` | AI actions per day, relative to the base 50. The player always gets 50. | −8 (Militia, AI gets 42) → 0 (Veteran) → +10 (Apex, AI gets 60) |
 
----
-
-## Raider — calibrated values
-
-**The Raider is Balanced with two changes: a more aggressive decision table,
-and the Tyranny government.** Nothing else differs — same `SHARED_BASELINE`,
-same building mix, same 25%-turret `targetMix`, same production, same spend
-fractions, same priorities.
-
-How we got here: sim sweeps (4- and 12-AI, passive player, multiple seeds)
-tried every elaborate offense-shaped recipe — thin turrets, war-economy
-buildings, high `militarySpendFraction`, a "sleeper" early-attack hold — and
-the Raider lost every time, ending ~10–30% of Balanced's net worth. A control
-run then gave the Raider *Balanced's exact template* plus only the aggressive
-decision table: with Tyranny's income penalty intact it was a coin-flip at 4
-AI and a ~50% runner-up at 12 AI; with the penalty removed it **dominated**
-(~180–350% of Balanced). Softening Tyranny's PCI penalty from −25% to **−10%**
-(`government.ts`) landed the sweet spot: 12-AI median ~150% of Balanced,
-leads or ties every seed, still a clearly distinct archetype (ends with
-roughly 2× Balanced's land and army). The elaborate recipes were all
-compensating for handicaps that just needed removing.
-
-| Knob | Value | Rationale |
-|---|---|---|
-| `government` | Tyranny | 1 turn per attack, +20% attack gains, −10% upkeep, and now only −10% PCI (was −25% — see `government.ts`). |
-| `decisionTable` | attack **4** / covert 1 / buildMilitary **5** / buildEconomy **4** / explore 3 | The whole identity. ~2× shared's attack weight, compounding with season heat + `aggressionSkew`; `buildEconomy` at 4 (vs shared's 3) so it fills conquered land and keeps compounding. |
-| everything else | **= Balanced (`SHARED_*`)** | `attackTypeMix`, `production`, `targetMix` (25% turrets), `buyPriority`, `buildingMix`, `buildPriority`, `militarySpendFraction` 0.5, `buildSpendFraction` 0.5, `attackHoldUntilFraction` 0. |
-
-**Known consequences (watch in playtest):**
-- **It out-conquers and out-grows Balanced.** Aggression compounds *for* it
-  once the foundation is solid: win fights → take land + loot → build it out
-  (it has Balanced's build rate) → bigger economy → bigger army. In the sims
-  it ends with ~2× Balanced's land and military.
-- **Tyranny −10% is a global change.** A human who picks Tyranny gets it too
-  (intended — at −25% nobody would).
-- **No "hunts you" bias** — targets the player no more than any other nation
-  (`pickAttackTarget` scores by size × grudge × futility, no player term).
-- **4-AI is high variance** — a four-nation game swings on who breaks first;
-  the Raider wins most seeds but occasionally gets wiped. 12-AI is the
-  stable signal.
-- **`attackHoldUntilFraction`** stays on `ArchetypeTemplate` as an available
-  knob but every archetype is at 0 (no hold) — the "sleeper" idea didn't
-  beat plain aggression once the foundation was fixed.
+Full 10-tier table is in that file. Nudge individual rows as playtesting
+suggests — there are no difficulty-specific code paths, so a row edit is safe.

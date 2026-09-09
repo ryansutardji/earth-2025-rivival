@@ -1,13 +1,14 @@
 # Earth 2025 Revival — Open Items
 
 Everything known to be unfinished, feeling wrong, or worth adding. The game is
-fully playable and tested (179 automated tests, all passing). It draws heavily
+fully playable and tested (166 automated tests, all passing). It draws heavily
 on the real Earth Empires game — buildings, the 8 governments, tech, attack
 types, spy operations, missiles, the economy, land exploration — with some
 deliberate divergences for single-player balance: economy accrues per turn (a
 5-turn build ticks 5×), captured land arrives fully built, a won attack seizes
 oil, and being attacked benches 15% of the defender's military for 50 turns.
-No in-game bank (the real game dropped it too).
+No in-game bank, and no public/player market — the private market (units,
+bushels, oil; buy-only, one turn per purchase) is the only exchange.
 
 Legend: **P0** = would bug a first-time player · **P1** = should get done
 before calling this finished · **P2** = nice-to-have polish. Effort:
@@ -25,29 +26,13 @@ pace scales with however many days the season actually runs, and — with the
 §2 AI rewrite — enemies now spend real cash on real economy the same way the
 player does, so their growth is naturally bounded instead of front-loaded.
 Exact end-of-season numbers haven't been re-measured since the archetype
-calibration, the unified starting baseline (see §2), and the per-turn economy
-switch — that last one inflated final net worth roughly 5–10× (everyone now
-gets a full day's economy per action-day instead of one tick), so the
-`playthrough.test.ts` ceilings and any "feels right" targets need a fresh
-look. This section's job now is that re-measure plus the difficulty ladder
-below. All tunable numbers live in `src/engine/config.ts`.
+calibration, the unified starting baseline (see §2), the per-turn economy
+switch — that one inflated final net worth roughly 5–10× (everyone now gets a
+full day's economy per action-day instead of one tick) — and the public
+market removal. So the `playthrough.test.ts` ceilings and any "feels right"
+targets need a fresh look. All tunable numbers live in `src/engine/config.ts`.
 
-### The marketplace & spying
-- [ ] **P1 · S — Democracy's "zero market commission" perk doesn't actually
-  exist.** Every government has a real per-government market commission rate
-  on the books (Democracy 0%, Communism 10%, everyone else 6%, matching the
-  wiki), but the actual buy/sell price math uses one flat global spread for
-  every government — the government-specific rate is never read. Should
-  apply `gov(nation.government).marketCommission` in the buy/sell price
-  calculation instead of the flat `config.market.spread`.
-- [ ] **P1 · S — The public marketplace never actually runs low on
-  anything.** Confirmed still true: it restocks a flat amount (e.g. +250
-  jets, +120 tanks) on *every single action you take*, not once a day — with
-  up to 50 actions available per day, it can refill from empty to its cap
-  within a handful of clicks no matter how much you just bought. Part of the
-  bigger "public market has no real economy behind it" item in §2 — a slower
-  flat restock (once/day) is the minimum fallback if that doesn't get taken
-  on in full.
+### Spying
 - [ ] **P2 · S — "Detected" has a consequence now, but only a partial one.**
   Since the §2 rewrite, a detected *failed* spy op writes a decaying "grudge"
   on the target (AI or player alike) that biases its future target-selection
@@ -77,40 +62,13 @@ spy) gated by genuine affordability — not a made-up growth curve. This
 section is the open list of what's still rough about *how they decide* what
 to do with that. All of it lives in `src/engine/archetype/`.
 
-- [ ] **P2 · S — All four archetypes are calibrated; confirm by playtest.**
-  Each is Balanced's shared recipe (`SHARED_*` building mix, production,
-  spend fractions, priorities, one `baseline`) plus a distinct decision table
-  and government — nothing bespoke:
-  - **Raider** — aggressive weights (attack 4 vs 2) + Tyranny (its −25% PCI
-    softened to −10% in `government.ts`).
-  - **Economic** — economy-heavy weights + Democracy.
-  - **Turtle** — turret-heavy `targetMix` + defensive weights + a token
-    attack 1 (so it can shove back) + Theocracy.
-  - **Balanced** — the shared table + Democracy.
-
-  Sim sweeps land the **12-AI game roughly even** across all four; the
-  **4-AI game still favours the Turtle** (a quiet small roster rewards
-  never-lose-anything play — accepted for now). A `governmentMode: "random"`
-  season lever (SetupScreen) gives a reshuffled variant. See
-  `docs/archetype-calibration.md`.
-  *Rests on:* the removed "can I win?" attack brake (`attackViable` now only
-  checks the futility streak) and the combat reward package (full building
-  capture, oil loot, post-attack defense suppression) — if any of those
-  change, re-run the sweeps.
-- [ ] **P2 · L — The public market has no real economy behind it, and the AI
-  doesn't touch it at all.** Its stock is synthetic auto-restock (refills
-  toward its cap on *every* action, not once a day — the "never runs low"
-  item in §1); archetypes have zero market actions in their code, so they
-  never buy or sell units, bushels, or oil there. In real EE the public
-  market is a *tactical tool for a strategy* — a Farmer mass-produces
-  bushels and sells them, a Techer sells research, etc. — and this game has
-  no strategy system yet (not even the archetype personality leans are
-  implemented). So this is blocked on the bigger "do we want strategies?"
-  question: if yes, the market gets rebuilt (AI-driven supply, real price
-  discovery) alongside them; if no, it probably gets removed and replaced
-  with a flat sell-for-cash / buy-bushels-and-oil-at-a-premium stub (the
-  dead `config.privateSellFraction` is already there for it). Leaving the
-  market functional-but-shallow for now — it's not broken, just thin.
+- [ ] **P2 · S — The AI has no action to buy bushels or oil.** The private
+  market now sells units, bushels, and oil to the *player*, but archetypes
+  only ever buy units (`buyMilitaryTowardMix`). They have no equivalent for
+  topping up food or oil — they rely entirely on farms / oil rigs and the
+  soft food brake. Worth deciding whether a crisis-only "buy bushels/oil when
+  a farm/rig can't fix it fast enough" branch is needed, or whether the
+  existing brakes + build priorities cover it. (Discussed but not designed.)
 - [ ] **P2 · S — Food brake is soft — confirm it's enough or make it hard.**
   The upkeep brake now also blocks military growth when a bigger army would
   push *bushels* net-negative, not just cash — but softly (it just drops
@@ -140,19 +98,18 @@ to do with that. All of it lives in `src/engine/archetype/`.
 
 ## 3. Features that don't exist yet
 
-- [ ] **P2 · S — No dedicated "disband units" action.** You *can* already
-  shrink your army for cash by selling units on the public market
-  (`marketSell` supports all 5 unit types) — same as real EE. A dedicated
-  disband (flat partial refund, no market friction, using the currently-dead
-  `config.privateSellFraction`) would be a convenience, not a missing
-  capability.
+- [ ] **P2 · S — No way to shrink your army.** Selling units went away with
+  the public market, and there's no disband action either — an army you can't
+  afford just bleeds via the desertion/starvation ticks until it's back in
+  budget. If that recovery path feels too punishing in playtest, add a simple
+  disband (flat % cash back, no friction).
 - [ ] **P2 · M — Missiles and bombing runs currently overlap too much.**
   Right now, turrets do double duty defending against both regular attacks
   and against spy/air threats. A proper missile system should be its own
   distinct thing — needing its own tech and oil, hitting buildings and
   population, and specifically countered by anti-missile tech and turrets.
 - [ ] **P2 · S — Updating the game can silently wipe someone's save file.**
-  Whenever `SCHEMA_VERSION` changes (now at 11), the old save is just
+  Whenever `SCHEMA_VERSION` changes (now at 12), the old save is just
   discarded instead of migrated. Should add a proper upgrade path so people
   don't lose in-progress games on update.
 - [ ] **P2 · S — No history of past seasons.** There's no meta-progression by
@@ -222,15 +179,12 @@ to do with that. All of it lives in `src/engine/archetype/`.
   score never spikes absurdly and no value ever goes negative/invalid. That
   wider net is still the real safety net against a future balance change
   reintroducing a runaway economy.
-- [ ] **P2 — Market running dry and recovering isn't tested.** Should verify
-  that if a good is fully bought out, it restocks properly afterward and the
-  price stays within a sane range.
 - [ ] **P2 — Interface tests only check that text appears on screen.** They
   don't verify that clicking things actually works (e.g., clicking "Buy"
   should actually increase your military count).
 - [ ] **P2 — The player-action determinism test doesn't include an attack or
   a spy op.** `turn.test.ts`'s "same world + same actions => identical state"
-  runs build / market / cash / explore / endDay only. Archetype-side combat
+  runs build / buyResource / cash / explore / endDay only. Archetype-side combat
   determinism *is* covered now (`applyTurn.test.ts` "is deterministic for a
   given seed", plus the End-Day catch-up), but a player-driven `attack` /
   `covertOp` in that action list is still missing.

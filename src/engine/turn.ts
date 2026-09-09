@@ -14,9 +14,8 @@ import { createRng } from "./rng";
 import { applyEconomyTick } from "./economy";
 import { build, demolish } from "./build";
 import { explore } from "./explore";
-import { buyMilitary } from "./military";
+import { buyMilitary, buyResource } from "./military";
 import { setGovernment, setProduction, setResearchFocus, setTaxRate } from "./policy";
-import { marketBuy, marketSell, tickMarket } from "./market";
 import { resolveCombat, resolveSent } from "./combat";
 import { resolveCovertOp, isHarmful } from "./covert";
 import { resolveMissile } from "./missile";
@@ -35,7 +34,6 @@ import type {
   CovertOp,
   CovertResult,
   GovernmentId,
-  MarketGood,
   MissileResult,
   MissileType,
   Nation,
@@ -44,7 +42,7 @@ import type {
   TechCategory,
   WorldState,
 } from "./types";
-import type { UnitType } from "./military";
+import type { ResourceGood, UnitType } from "./military";
 
 export type PlayerAction =
   | { kind: "build"; buildingType: keyof Buildings; acres: number }
@@ -56,8 +54,7 @@ export type PlayerAction =
   | { kind: "setProduction"; mix: Partial<ProductionMix> }
   | { kind: "setResearchFocus"; focus: TechCategory }
   | { kind: "setGovernment"; government: GovernmentId }
-  | { kind: "marketBuy"; good: MarketGood; qty: number }
-  | { kind: "marketSell"; good: MarketGood; qty: number }
+  | { kind: "buyResource"; good: ResourceGood; qty: number }
   | { kind: "attack"; targetId: string; attackType: AttackType; send?: AttackOrders }
   | { kind: "covertOp"; targetId: string; op: CovertOp }
   | { kind: "launchMissile"; targetId: string; missile: MissileType }
@@ -80,7 +77,7 @@ function pushLog(world: WorldState, lines: string[]): void {
   if (world.log.length > MAX_LOG) world.log = world.log.slice(-MAX_LOG);
 }
 
-/** Market drift + player economy tick + every undefeated archetype's turn. */
+/** Player economy tick + every undefeated archetype's turn. */
 function advanceWorldTick(
   world: WorldState,
   rng: Rng,
@@ -90,7 +87,6 @@ function advanceWorldTick(
   logPerTurn: boolean,
 ): { combat?: CombatResult; covert?: CovertResult } {
   const tier = getTier(world.config.tierId);
-  world.market = tickMarket(world.market, rng);
   // Economy accrues per turn, not per action: an action that spent 4 turns
   // ticks 4×. On End Day the leftover (unspent) turns are credited here, so a
   // full day always ticks a full day's worth whether played out or idled.
@@ -213,16 +209,6 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
     return null;
   };
 
-  // As `applySimple`, plus the updated market state (buy/sell).
-  const applyMarket = (r: { ok: boolean; error?: string; nation: Nation; market: WorldState["market"]; turnsRemaining: number; log: string[] }, fallback: string) => {
-    if (!r.ok) return reject(prev, r.error ?? fallback);
-    world.player = r.nation;
-    world.market = r.market;
-    world.turnsRemaining = r.turnsRemaining;
-    pushLog(world, r.log);
-    return null;
-  };
-
   // Look up a live, non-defeated enemy by id, or a ready-to-return rejection.
   const findTarget = (targetId: string): { idx: number; target: Nation } | { reject: TurnOutcome } => {
     const idx = world.enemies.findIndex((e) => e.id === targetId);
@@ -293,13 +279,8 @@ export function applyPlayerTurn(prev: WorldState, action: PlayerAction): TurnOut
       if (bad) return bad;
       break;
     }
-    case "marketBuy": {
-      const bad = applyMarket(marketBuy(world.player, world.market, world.turnsRemaining, action.good, action.qty), "Cannot buy.");
-      if (bad) return bad;
-      break;
-    }
-    case "marketSell": {
-      const bad = applyMarket(marketSell(world.player, world.market, world.turnsRemaining, action.good, action.qty), "Cannot sell.");
+    case "buyResource": {
+      const bad = applySimple(buyResource(world.player, world.turnsRemaining, { good: action.good, qty: action.qty }), "Cannot buy.");
       if (bad) return bad;
       break;
     }

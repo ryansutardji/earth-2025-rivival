@@ -4,7 +4,7 @@
  * source figure exists; the rest are tuned for this game's compressed season.
  */
 
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 
 export const config = {
   // ---- Season ----
@@ -42,7 +42,6 @@ export const config = {
     explore: 1,
     cash: 1,
     buyMilitary: 1,
-    marketTrade: 1,
     setTaxRate: 1,
     setProduction: 1,
     setResearchFocus: 1,
@@ -148,30 +147,15 @@ export const config = {
   bptBase: 8,
   bptPerSite: 0.25,
 
-  // ---- Private market (instant unit buys, cash) — wiki base costs ----
+  // ---- Private market (instant buys, cash) — wiki base costs ----
+  // The only market in the game: buy units / bushels / oil for cash, one turn
+  // per purchase regardless of quantity, no selling. Unit prices are further
+  // discounted by Military tech / Military Bases / government; bushels & oil
+  // are the flat prices below.
   unitCost: { troops: 144, jets: 192, turrets: 210, tanks: 588, spies: 0 },
-  /** Sell fraction of buy price on the private market. */
-  privateSellFraction: 0.25,
+  /** Flat private-market price per unit of bushels / oil (no discounts). */
+  resourceCost: { bushels: 30, oil: 40 },
   maxBuyPerAction: 500,
-
-  // ---- Public market (floating price/stock; wiki base costs where given) ----
-  market: {
-    spread: 0.07,
-    volatility: 0.05,
-    revertRate: 0.06,
-    priceImpactPerFill: 0.35,
-    minPriceFactor: 0.4,
-    maxPriceFactor: 2.5,
-    goods: {
-      troops: { base: 108, restock: 400, stockCap: 6000 },
-      jets: { base: 150, restock: 250, stockCap: 4000 },
-      turrets: { base: 165, restock: 350, stockCap: 5000 },
-      tanks: { base: 450, restock: 120, stockCap: 2000 },
-      spies: { base: 130, restock: 60, stockCap: 1000 },
-      bushels: { base: 30, restock: 20_000, stockCap: 400_000 },
-      oil: { base: 40, restock: 6000, stockCap: 120_000 },
-    },
-  },
 
   // ---- Combat: unit power by attack type (wiki: Private market) ----
   power: {

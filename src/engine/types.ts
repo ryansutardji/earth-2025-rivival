@@ -89,7 +89,7 @@ export const BUILDING_TYPES: readonly (keyof Buildings)[] = [
  * - `jets`    — Standard/Planned offence, Bombing Run; no defence
  * - `turrets` — Standard/Planned/Bombing defence; no offence
  * - `tanks`   — Standard/Planned offence, Artillery Barrage; offence + defence
- * - `spies`   — covert ops only; never bought/sold on the public market
+ * - `spies`   — covert ops only; can't be bought, only produced by Industrial Complexes
  */
 export interface Military {
   troops: number;
@@ -251,24 +251,18 @@ export interface SeasonConfig {
   seed: number;
 }
 
-export type MarketGood = "troops" | "jets" | "turrets" | "tanks" | "spies" | "bushels" | "oil";
+/** Everything the player can buy on the private market: the four purchasable
+ * unit types (spies are Industrial-Complex-only), plus bushels and oil. */
+export type BuyableGood = "troops" | "jets" | "turrets" | "tanks" | "bushels" | "oil";
 
-export const MARKET_GOODS: readonly MarketGood[] = [
+export const BUYABLE_GOODS: readonly BuyableGood[] = [
   "troops",
   "jets",
   "turrets",
   "tanks",
-  "spies",
   "bushels",
   "oil",
 ];
-
-export interface MarketEntry {
-  price: number;
-  stock: number;
-}
-
-export type MarketState = Record<MarketGood, MarketEntry>;
 
 export type CombatOutcome = "attacker_won" | "attacker_repelled";
 
@@ -480,7 +474,6 @@ export interface WorldState {
   turnsRemaining: number;
   player: Nation;
   enemies: Nation[];
-  market: MarketState;
   status: SeasonStatus;
   log: string[];
 }

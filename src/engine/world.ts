@@ -3,7 +3,6 @@
 import { SCHEMA_VERSION, config } from "./config";
 import { makePlayerNation } from "./factory";
 import { generateSeason } from "./season";
-import { initialMarket } from "./market";
 import { seedToState, rngFromSeed, randRange } from "./rng";
 import { getTier } from "../data/difficultyTiers";
 import type { SeasonConfig, WorldState } from "./types";
@@ -25,7 +24,6 @@ export function createWorld(cfg: SeasonConfig): WorldState {
     turnsRemaining: config.turnPoolCap,
     player: makePlayerNation(cfg.playerGovernment),
     enemies: generateSeason(cfg, tier),
-    market: initialMarket(cfg.seed),
     status: "playing",
     log: [
       `A new season begins — ${cfg.seasonLengthDays} days. Eliminate every enemy, ` +

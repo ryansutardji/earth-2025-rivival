@@ -77,7 +77,7 @@ export function GameScreen() {
 
       <ActionBar player={world.player} disabled={noTurns || over} seasonLengthDays={world.seasonLengthDays} />
 
-      <MarketPanel player={world.player} market={world.market} disabled={noTurns || over} />
+      <MarketPanel player={world.player} disabled={noTurns || over} />
 
       <div className="grid gap-5 md:grid-cols-2">
         <EnemyList

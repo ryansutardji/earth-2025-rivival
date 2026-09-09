@@ -44,8 +44,7 @@ describe("UI smoke", () => {
     expect(html()).toContain("Enemy roster");
     expect(html()).toContain("Event log");
     expect(html()).toContain("End Day");
-    expect(html()).toContain("Public Market");
-    expect(html()).toContain("Public Market");
+    expect(html()).toContain("Private Market");
     expect(html()).toContain("Explore");
     expect(html()).toContain("Spy to reveal");
   });
